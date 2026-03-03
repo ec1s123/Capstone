@@ -123,6 +123,15 @@ select {
   gap: 24px;
 }
 
+.tables.compare-layout {
+  grid-template-columns: minmax(0, 1fr) 78px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.tables.single {
+  grid-template-columns: 1fr;
+}
+
 .card {
   background: var(--card-alt);
   border-radius: 20px;
@@ -142,6 +151,41 @@ select {
 .card-header h3 {
   font-family: 'Unbounded', system-ui, sans-serif;
   font-size: 20px;
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inline-gw-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.inline-gw-picker select {
+  min-width: 64px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.source-chip {
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
 }
 
 .pill {
@@ -176,6 +220,63 @@ thead {
   text-transform: uppercase;
   font-size: 11px;
   letter-spacing: 0.12em;
+}
+
+.table-card {
+  --table-accent: var(--accent);
+  --table-accent-soft: rgba(246, 195, 67, 0.2);
+  --table-head: rgba(255, 255, 255, 0.04);
+}
+
+.current-card {
+  --table-accent: #49b6ff;
+  --table-accent-soft: rgba(73, 182, 255, 0.2);
+  --table-head: rgba(73, 182, 255, 0.09);
+  border-color: rgba(73, 182, 255, 0.35);
+  box-shadow: 0 18px 50px rgba(5, 9, 20, 0.45), inset 0 1px 0 rgba(73, 182, 255, 0.2);
+}
+
+.predicted-card {
+  --table-accent: #52d7a8;
+  --table-accent-soft: rgba(82, 215, 168, 0.2);
+  --table-head: rgba(82, 215, 168, 0.09);
+  border-color: rgba(82, 215, 168, 0.35);
+  box-shadow: 0 18px 50px rgba(5, 9, 20, 0.45), inset 0 1px 0 rgba(82, 215, 168, 0.2);
+}
+
+.table-card .eyebrow,
+.table-card .pos,
+.table-card .pill,
+.table-card .source-chip {
+  color: var(--table-accent);
+}
+
+.table-card .pill,
+.table-card .source-chip {
+  background: var(--table-accent-soft);
+}
+
+.table-card thead {
+  background: var(--table-head);
+}
+
+.compare-rail {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 10px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.compare-rail .rail-line {
+  width: 2px;
+  height: 64px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #49b6ff 0%, #52d7a8 100%);
 }
 
 tbody tr {
@@ -278,6 +379,15 @@ tbody tr.favorite {
   .insights,
   .tables {
     grid-template-columns: 1fr;
+  }
+
+  .compare-rail {
+    display: none;
+  }
+
+  .header-meta {
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 }
 

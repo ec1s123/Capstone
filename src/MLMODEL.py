@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import (
@@ -16,7 +17,9 @@ from xgboost import XGBClassifier
 
 
 DATA_PATH = "src/data/epl_final.csv"
-TEST_SEASON = "2024/25"
+PREDICTED_TABLE_OUTPUT_PATH = "src/data/predicted_table.json"
+VALIDATION_SEASON = "2024/25"
+TEST_SEASON = "2025/26"
 ROLLING_WINDOW = 5
 ELO_BASE = 1500.0
 ELO_K = 20.0
@@ -247,6 +250,63 @@ def build_pipeline(cat_cols, num_cols, n_estimators, max_depth):
     )
 
 
+def build_predicted_table(fixtures_df, preds, probs):
+    label_map = {0: "H", 1: "D", 2: "A"}
+    teams = sorted(set(fixtures_df["HomeTeam"]).union(set(fixtures_df["AwayTeam"])))
+    table = {
+        team: {
+            "Team": team,
+            "Played": 0,
+            "Won": 0,
+            "Drawn": 0,
+            "Lost": 0,
+            "Points": 0,
+            "ExpectedPoints": 0.0,
+        }
+        for team in teams
+    }
+
+    for i, row in enumerate(fixtures_df.itertuples(index=False)):
+        home = row.HomeTeam
+        away = row.AwayTeam
+        pred_label = label_map[int(preds[i])]
+        home_win_prob, draw_prob, away_win_prob = probs[i]
+
+        table[home]["Played"] += 1
+        table[away]["Played"] += 1
+
+        # Expected points from class probabilities.
+        table[home]["ExpectedPoints"] += (3.0 * float(home_win_prob)) + float(draw_prob)
+        table[away]["ExpectedPoints"] += (3.0 * float(away_win_prob)) + float(draw_prob)
+
+        if pred_label == "H":
+            table[home]["Won"] += 1
+            table[home]["Points"] += 3
+            table[away]["Lost"] += 1
+        elif pred_label == "A":
+            table[away]["Won"] += 1
+            table[away]["Points"] += 3
+            table[home]["Lost"] += 1
+        else:
+            table[home]["Drawn"] += 1
+            table[away]["Drawn"] += 1
+            table[home]["Points"] += 1
+            table[away]["Points"] += 1
+
+    standings = pd.DataFrame(table.values())
+    standings["ExpectedPoints"] = standings["ExpectedPoints"].round(2)
+    standings = standings.sort_values(
+        ["Points", "Won", "ExpectedPoints", "Team"], ascending=[False, False, False, True]
+    ).reset_index(drop=True)
+    standings.insert(0, "Position", standings.index + 1)
+    return standings
+
+
+def save_predicted_table(standings_df, output_path):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    standings_df.to_json(output_path, orient="records", indent=2)
+
+
 def prepare_dataset(df_with_form, k_factor, home_advantage):
     out = add_elo_features(
         df_with_form,
@@ -277,12 +337,12 @@ def split_xy(df, train_mask, val_mask, drop_feature_cols):
     return x_train, y_train_local, x_val, y_val_local
 
 
-def tune_elo_params(df_with_form, drop_feature_cols):
-    train_seasons = sorted(s for s in df_with_form["Season"].unique() if s < TEST_SEASON)
-    if len(train_seasons) < 2:
+def tune_elo_params(df_with_form, drop_feature_cols, validation_season):
+    train_seasons = sorted(s for s in df_with_form["Season"].unique() if s < validation_season)
+    if len(train_seasons) < 1:
         return ELO_K, ELO_HOME_ADV, None, None
 
-    tune_season = train_seasons[-1]
+    tune_season = validation_season
     best_score = float("inf")
     best_k = ELO_K
     best_home_adv = ELO_HOME_ADV
@@ -292,7 +352,7 @@ def tune_elo_params(df_with_form, drop_feature_cols):
             tmp = prepare_dataset(df_with_form, k_factor=k, home_advantage=home_adv)
             split = split_xy(
                 tmp,
-                train_mask=tmp["Season"] < tune_season,
+                train_mask=tmp["Season"] < validation_season,
                 val_mask=tmp["Season"] == tune_season,
                 drop_feature_cols=drop_feature_cols,
             )
@@ -332,17 +392,21 @@ drop_feature_cols = ["Season", "MatchDate"] + LEAKY_MATCH_EVENT_COLUMNS
 drop_feature_cols = [c for c in drop_feature_cols if c in df_with_form.columns]
 
 best_k, best_home_adv, tune_season, tune_score = tune_elo_params(
-    df_with_form, drop_feature_cols
+    df_with_form, drop_feature_cols, VALIDATION_SEASON
 )
 df = prepare_dataset(df_with_form, k_factor=best_k, home_advantage=best_home_adv)
 
 # Split before fitting transforms.
-train = df[df["Season"] < TEST_SEASON].copy()
+available_seasons = sorted(df["Season"].unique())
+train = df[df["Season"] < VALIDATION_SEASON].copy()
+val = df[df["Season"] == VALIDATION_SEASON].copy()
 test = df[df["Season"] == TEST_SEASON].copy()
 
-if train.empty or test.empty:
+if train.empty or val.empty or test.empty:
     raise ValueError(
-        f"Train/Test split is empty. Check TEST_SEASON={TEST_SEASON} and Season values."
+        "Train/Validation/Test split is empty. "
+        f"Check VALIDATION_SEASON={VALIDATION_SEASON}, TEST_SEASON={TEST_SEASON}. "
+        f"Available seasons: {available_seasons}"
     )
 
 drop_feature_cols = ["Season", "MatchDate"] + LEAKY_MATCH_EVENT_COLUMNS
@@ -350,8 +414,10 @@ drop_feature_cols = [c for c in drop_feature_cols if c in df.columns]
 
 X_train = train.drop(columns=["y"] + drop_feature_cols)
 y_train = train["y"]
-X_val = test.drop(columns=["y"] + drop_feature_cols)
-y_val = test["y"]
+X_val = val.drop(columns=["y"] + drop_feature_cols)
+y_val = val["y"]
+X_test = test.drop(columns=["y"] + drop_feature_cols)
+y_test = test["y"]
 
 cat_cols = X_train.select_dtypes(include=["object", "category"]).columns.tolist()
 num_cols = X_train.select_dtypes(exclude=["object", "category"]).columns.tolist()
@@ -363,20 +429,26 @@ clf = build_pipeline(
 )
 
 clf.fit(X_train, y_train)
-probs = clf.predict_proba(X_val)
-preds = probs.argmax(axis=1)
+val_probs = clf.predict_proba(X_val)
+val_preds = val_probs.argmax(axis=1)
+test_probs = clf.predict_proba(X_test)
+test_preds = test_probs.argmax(axis=1)
 
 majority_baseline = DummyClassifier(strategy="most_frequent")
 majority_baseline.fit(X_train, y_train)
-majority_preds = majority_baseline.predict(X_val)
-majority_probs = majority_baseline.predict_proba(X_val)
+majority_val_preds = majority_baseline.predict(X_val)
+majority_val_probs = majority_baseline.predict_proba(X_val)
+majority_test_preds = majority_baseline.predict(X_test)
+majority_test_probs = majority_baseline.predict_proba(X_test)
 
 prior_baseline = DummyClassifier(strategy="prior")
 prior_baseline.fit(X_train, y_train)
-prior_preds = prior_baseline.predict(X_val)
-prior_probs = prior_baseline.predict_proba(X_val)
+prior_val_preds = prior_baseline.predict(X_val)
+prior_val_probs = prior_baseline.predict_proba(X_val)
+prior_test_preds = prior_baseline.predict(X_test)
+prior_test_probs = prior_baseline.predict_proba(X_test)
 
-print("Train rows:", len(X_train), "Test rows:", len(X_val))
+print("Train rows:", len(X_train), "Validation rows:", len(X_val), "Test rows:", len(X_test))
 print("Feature count:", X_train.shape[1])
 if tune_season is not None:
     print(
@@ -386,18 +458,41 @@ if tune_season is not None:
 else:
     print(f"Elo tuning skipped (insufficient seasons). Using K={best_k:.1f}, home_adv={best_home_adv:.1f}")
 
-print_block("Baseline: Most Frequent")
-print_metrics(y_val, majority_preds, majority_probs)
+print_block(f"Validation ({VALIDATION_SEASON}) - Baseline: Most Frequent")
+print_metrics(y_val, majority_val_preds, majority_val_probs)
 
-print_block("Baseline: Class Prior Probabilities")
-print_metrics(y_val, prior_preds, prior_probs)
+print_block(f"Validation ({VALIDATION_SEASON}) - Baseline: Class Prior Probabilities")
+print_metrics(y_val, prior_val_preds, prior_val_probs)
 
-print_block("Model: XGBoost")
-print_metrics(y_val, preds, probs)
-print(f"Weighted F1:       {f1_score(y_val, preds, average='weighted'):.4f}")
-print(f"ROC-AUC (OvR):     {roc_auc_score(y_val, probs, multi_class='ovr'):.4f}")
-print("Confusion Matrix:\n", confusion_matrix(y_val, preds))
+print_block(f"Validation ({VALIDATION_SEASON}) - Model: XGBoost")
+print_metrics(y_val, val_preds, val_probs)
+print(f"Weighted F1:       {f1_score(y_val, val_preds, average='weighted'):.4f}")
+print(f"ROC-AUC (OvR):     {roc_auc_score(y_val, val_probs, multi_class='ovr'):.4f}")
+print("Confusion Matrix:\n", confusion_matrix(y_val, val_preds))
 print(
     "Classification Report:\n",
-    classification_report(y_val, preds, target_names=["H", "D", "A"]),
+    classification_report(y_val, val_preds, target_names=["H", "D", "A"]),
 )
+
+print_block(f"Test ({TEST_SEASON}) - Baseline: Most Frequent")
+print_metrics(y_test, majority_test_preds, majority_test_probs)
+
+print_block(f"Test ({TEST_SEASON}) - Baseline: Class Prior Probabilities")
+print_metrics(y_test, prior_test_preds, prior_test_probs)
+
+print_block(f"Test ({TEST_SEASON}) - Model: XGBoost")
+print_metrics(y_test, test_preds, test_probs)
+print(f"Weighted F1:       {f1_score(y_test, test_preds, average='weighted'):.4f}")
+print(f"ROC-AUC (OvR):     {roc_auc_score(y_test, test_probs, multi_class='ovr'):.4f}")
+print("Confusion Matrix:\n", confusion_matrix(y_test, test_preds))
+print(
+    "Classification Report:\n",
+    classification_report(y_test, test_preds, target_names=["H", "D", "A"]),
+)
+
+predicted_table = build_predicted_table(test[["HomeTeam", "AwayTeam"]], test_preds, test_probs)
+print_block("Predicted Final Premier League Table")
+print(predicted_table.to_string(index=False))
+
+save_predicted_table(predicted_table, PREDICTED_TABLE_OUTPUT_PATH)
+print(f"\nSaved predicted table to {PREDICTED_TABLE_OUTPUT_PATH}")
