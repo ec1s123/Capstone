@@ -54,6 +54,7 @@ export function buildStandings(gameweek) {
     return {
       team: team.team,
       color: team.color,
+      played: gameweek,
       points,
       predictedPoints
     }

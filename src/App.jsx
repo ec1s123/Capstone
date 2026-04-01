@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { buildStandings, teamList } from './data/placeholder'
+import predictedTableData from './data/predicted_table.json'
 
 const gameweeks = Array.from({ length: 38 }, (_, index) => index + 1)
 
@@ -7,15 +8,31 @@ function sortByNumber(key) {
   return (a, b) => b[key] - a[key]
 }
 
-function TableCard({ title, rows, favoriteTeam, mode }) {
+function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange }) {
+  const isCurrentMode = mode === 'current'
+  const cardClassName = isCurrentMode ? 'table-card current-card' : 'table-card predicted-card'
+  const sourceLabel = isCurrentMode ? 'Live Data' : 'Model Forecast'
+
   return (
-    <section className="card table-card">
+    <section className={`card ${cardClassName}`}>
       <header className="card-header">
         <div>
           <p className="eyebrow">{mode === 'current' ? 'Live Table' : 'Predicted Table'}</p>
           <h2>{title}</h2>
         </div>
-        <span className="pill">{rows.length} clubs</span>
+        <div className="header-meta">
+          <label className="inline-gw-picker">
+            GW
+            <select value={gameweek} onChange={(event) => onGameweekChange(Number(event.target.value))}>
+              {gameweeks.map((week) => (
+                <option key={`${mode}-gw-${week}`} value={week}>
+                  {week}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="source-chip">{sourceLabel}</span>
+        </div>
       </header>
       <div className="table-wrapper">
         <table>
@@ -23,15 +40,12 @@ function TableCard({ title, rows, favoriteTeam, mode }) {
             <tr>
               <th>Pos</th>
               <th>Team</th>
-              <th>Pts</th>
-              <th>Pred Pts</th>
-              <th>?</th>
+              <th>P</th>
+              <th>{isCurrentMode ? 'Pts' : 'Pred Pts'}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
-              const delta = row.points - row.predictedPoints
-              const deltaClass = delta > 0 ? 'delta up' : delta < 0 ? 'delta down' : 'delta flat'
               const isFavorite = row.team === favoriteTeam
               return (
                 <tr key={`${mode}-${row.team}`} className={isFavorite ? 'favorite' : undefined}>
@@ -41,11 +55,8 @@ function TableCard({ title, rows, favoriteTeam, mode }) {
                     <span>{row.team}</span>
                     {isFavorite && <span className="fav-tag">Favorite</span>}
                   </td>
-                  <td>{row.points}</td>
-                  <td>{row.predictedPoints}</td>
-                  <td>
-                    <span className={deltaClass}>{delta > 0 ? `+${delta}` : delta}</span>
-                  </td>
+                  <td>{row.played}</td>
+                  <td>{isCurrentMode ? row.points : row.predictedPoints}</td>
                 </tr>
               )
             })}
@@ -84,22 +95,86 @@ function PerformerList({ title, subtitle, items, favoriteTeam }) {
   )
 }
 
+function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
+  return (
+    <section className="card table-card">
+      <header className="card-header">
+        <div>
+          <p className="eyebrow">Model Output</p>
+          <h2>Predicted Final Premier League Table</h2>
+        </div>
+        <span className="pill">{rows.length} clubs</span>
+      </header>
+      {rows.length === 0 ? (
+        <p className="muted">
+          Run <code>.venv/bin/python src/MLMODEL.py</code> to generate{' '}
+          <code>src/data/predicted_table.json</code>.
+        </p>
+      ) : (
+        <div className="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Pos</th>
+                <th>Team</th>
+                <th>P</th>
+                <th>W</th>
+                <th>D</th>
+                <th>L</th>
+                <th>Pts</th>
+                <th>xPts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const isFavorite = row.Team === favoriteTeam
+                return (
+                  <tr key={`model-${row.Team}`} className={isFavorite ? 'favorite' : undefined}>
+                    <td className="pos">{row.Position}</td>
+                    <td className="team">
+                      <span className="team-badge" style={{ background: teamColors[row.Team] || '#8f9bb3' }} />
+                      <span>{row.Team}</span>
+                      {isFavorite && <span className="fav-tag">Favorite</span>}
+                    </td>
+                    <td>{row.Played}</td>
+                    <td>{row.Won}</td>
+                    <td>{row.Drawn}</td>
+                    <td>{row.Lost}</td>
+                    <td>{row.Points}</td>
+                    <td>{row.ExpectedPoints}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function App() {
-  const [gameweek, setGameweek] = useState(24)
+  const [currentGameweek, setCurrentGameweek] = useState(24)
+  const [predictedGameweek, setPredictedGameweek] = useState(24)
   const [favoriteTeam, setFavoriteTeam] = useState(teamList[0].team)
+  const teamColors = useMemo(
+    () => Object.fromEntries(teamList.map((team) => [team.team, team.color])),
+    []
+  )
 
   const { currentTable, predictedTable, topOver, topUnder } = useMemo(() => {
-    const baseRows = buildStandings(gameweek)
+    const currentRows = buildStandings(currentGameweek)
+    const predictedRows = buildStandings(predictedGameweek)
 
-    const currentTable = [...baseRows]
+    const currentTable = [...currentRows]
       .sort(sortByNumber('points'))
       .map((row, index) => ({ ...row, position: index + 1 }))
 
-    const predictedTable = [...baseRows]
+    const predictedTable = [...predictedRows]
       .sort(sortByNumber('predictedPoints'))
       .map((row, index) => ({ ...row, position: index + 1 }))
 
-    const deltas = baseRows
+    const deltas = currentRows
       .map((row) => ({
         team: row.team,
         points: row.points,
@@ -112,7 +187,7 @@ export default function App() {
     const topUnder = [...deltas].reverse().slice(0, 3)
 
     return { currentTable, predictedTable, topOver, topUnder }
-  }, [gameweek])
+  }, [currentGameweek, predictedGameweek])
 
   return (
     <div className="app">
@@ -127,16 +202,6 @@ export default function App() {
           </p>
         </div>
         <div className="hero-controls">
-          <label>
-            Gameweek
-            <select value={gameweek} onChange={(event) => setGameweek(Number(event.target.value))}>
-              {gameweeks.map((week) => (
-                <option key={week} value={week}>
-                  GW {week}
-                </option>
-              ))}
-            </select>
-          </label>
           <label>
             Favorite team
             <select value={favoriteTeam} onChange={(event) => setFavoriteTeam(event.target.value)}>
@@ -166,9 +231,36 @@ export default function App() {
         />
       </section>
 
-      <section className="tables">
-        <TableCard title="Current table" rows={currentTable} favoriteTeam={favoriteTeam} mode="current" />
-        <TableCard title="Predicted table" rows={predictedTable} favoriteTeam={favoriteTeam} mode="predicted" />
+      <section className="tables compare-layout">
+        <TableCard
+          title="Current table"
+          rows={currentTable}
+          favoriteTeam={favoriteTeam}
+          mode="current"
+          gameweek={currentGameweek}
+          onGameweekChange={setCurrentGameweek}
+        />
+        <div className="compare-rail" aria-hidden="true">
+          <span>NOW</span>
+          <span className="rail-line" />
+          <span>FORECAST</span>
+        </div>
+        <TableCard
+          title="Predicted table"
+          rows={predictedTable}
+          favoriteTeam={favoriteTeam}
+          mode="predicted"
+          gameweek={predictedGameweek}
+          onGameweekChange={setPredictedGameweek}
+        />
+      </section>
+
+      <section className="tables single">
+        <FinalModelTableCard
+          rows={predictedTableData}
+          favoriteTeam={favoriteTeam}
+          teamColors={teamColors}
+        />
       </section>
     </div>
   )
