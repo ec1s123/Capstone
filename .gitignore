@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+__pycache__/
+*.pyc
+
+frontend.log
+frontend.err.log
+
+src/data/prem_odds_metrics.json
+src/data/prem_odds_predictions_2024_25.csv
+src/data/prem_odds_softmax_model.npz
