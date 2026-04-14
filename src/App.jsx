@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Sparkles, TrendingDown, TrendingUp } from 'lucide-react'
+import { Activity, BrainCircuit, Home, Sparkles, TrendingDown, TrendingUp } from 'lucide-react'
 
 import { Badge } from './components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card'
@@ -23,6 +23,28 @@ import predictedTableData from './data/predicted_table.json'
 import { cn } from './lib/utils'
 
 const gameweeks = Array.from({ length: 38 }, (_, index) => index + 1)
+const methodology = [
+  {
+    title: 'Historical Performance',
+    description: 'Long-term team patterns, matchup history, and season-level trends shape the baseline view.',
+    icon: Activity,
+  },
+  {
+    title: 'Recent Form Tracking',
+    description: 'Short-term momentum, consistency, and changes in output are factored into every fixture forecast.',
+    icon: TrendingUp,
+  },
+  {
+    title: 'Match Context',
+    description: 'Home and away strength, scoring profiles, and defensive stability refine the prediction for each game.',
+    icon: Home,
+  },
+  {
+    title: 'Model-Driven Probabilities',
+    description: 'Structured model outputs turn raw football data into clearer, more actionable prediction signals.',
+    icon: BrainCircuit,
+  },
+]
 
 const teamAliases = {
   'Man City': 'Manchester City',
@@ -35,22 +57,22 @@ const toneMap = {
   current: {
     eyebrow: 'Live Table',
     source: 'Live Data',
-    card: 'border-sky-400/40 bg-slate-950/55',
-    badge: 'border-sky-300/35 bg-sky-400/15 text-sky-200',
-    header: 'bg-sky-500/10',
-    favorite: 'bg-sky-500/12',
-    pos: 'text-sky-300',
-    accentBorder: 'border-sky-300/35',
+    card: 'border-sky-200 bg-white',
+    badge: 'border-sky-200 bg-sky-50 text-sky-700',
+    header: 'bg-sky-50/80',
+    favorite: 'bg-sky-50',
+    pos: 'text-sky-700',
+    accentBorder: 'border-sky-200',
   },
   predicted: {
     eyebrow: 'Predicted Table',
     source: 'Model Forecast',
-    card: 'border-emerald-400/40 bg-slate-950/55',
-    badge: 'border-emerald-300/35 bg-emerald-400/15 text-emerald-200',
-    header: 'bg-emerald-500/10',
-    favorite: 'bg-emerald-500/12',
-    pos: 'text-emerald-300',
-    accentBorder: 'border-emerald-300/35',
+    card: 'border-emerald-200 bg-white',
+    badge: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    header: 'bg-emerald-50/80',
+    favorite: 'bg-emerald-50',
+    pos: 'text-emerald-700',
+    accentBorder: 'border-emerald-200',
   },
 }
 
@@ -63,9 +85,9 @@ function sortByNumber(key) {
 }
 
 function deltaClass(delta) {
-  if (delta > 0) return 'border-emerald-300/35 bg-emerald-400/20 text-emerald-100'
-  if (delta < 0) return 'border-rose-300/35 bg-rose-500/20 text-rose-100'
-  return 'border-white/20 bg-white/10 text-muted-foreground'
+  if (delta > 0) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (delta < 0) return 'border-rose-200 bg-rose-50 text-rose-700'
+  return 'border-slate-200 bg-slate-100 text-slate-600'
 }
 
 function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange }) {
@@ -75,7 +97,7 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
   return (
     <Card
       className={cn(
-        'overflow-hidden border backdrop-blur-xl shadow-[0_26px_70px_rgba(8,15,35,0.42)]',
+        'overflow-hidden border shadow-sm',
         tone.card
       )}
     >
@@ -87,7 +109,9 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select value={String(gameweek)} onValueChange={(value) => onGameweekChange(Number(value))}>
-              <SelectTrigger className={cn('h-9 w-[96px] bg-black/20 text-xs', tone.accentBorder)}>
+              <SelectTrigger
+                className={cn('h-9 w-[96px] bg-white text-xs text-slate-900', tone.accentBorder)}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -105,7 +129,7 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
         </div>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="overflow-hidden rounded-lg border border-white/10">
+        <div className="overflow-hidden rounded-lg border border-slate-200">
           <Table>
             <TableHeader className={tone.header}>
               <TableRow className="border-b-0 hover:bg-transparent">
@@ -124,14 +148,14 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <span
-                          className="h-2.5 w-2.5 rounded-full border border-white/20"
+                          className="h-2.5 w-2.5 rounded-full border border-slate-300"
                           style={{ backgroundColor: row.color }}
                         />
                         <span>{row.team}</span>
                         {isFavorite && (
                           <Badge
                             variant="outline"
-                            className="ml-2 border-amber-300/35 bg-amber-500/15 text-[10px] uppercase tracking-[0.12em] text-amber-100"
+                            className="ml-2 border-amber-200 bg-amber-50 text-[10px] uppercase tracking-[0.12em] text-amber-700"
                           >
                             Favorite
                           </Badge>
@@ -158,7 +182,7 @@ function PerformerList({ title, subtitle, items, favoriteTeam, direction }) {
   const Icon = isUp ? TrendingUp : TrendingDown
 
   return (
-    <Card className="border-white/15 bg-slate-950/55 backdrop-blur-xl shadow-[0_22px_65px_rgba(8,15,35,0.4)]">
+    <Card className="border-slate-200 bg-white shadow-sm">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -170,8 +194,8 @@ function PerformerList({ title, subtitle, items, favoriteTeam, direction }) {
             className={cn(
               'gap-1 border text-[11px] uppercase tracking-[0.14em]',
               isUp
-                ? 'border-emerald-300/35 bg-emerald-400/15 text-emerald-100'
-                : 'border-rose-300/35 bg-rose-500/15 text-rose-100'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-rose-200 bg-rose-50 text-rose-700'
             )}
           >
             <Icon className="h-3.5 w-3.5" />
@@ -186,8 +210,8 @@ function PerformerList({ title, subtitle, items, favoriteTeam, direction }) {
             <div
               key={item.team}
               className={cn(
-                'flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-3',
-                isFavorite && 'border-amber-300/35 bg-amber-500/10'
+                'flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-3',
+                isFavorite && 'border-amber-200 bg-amber-50'
               )}
             >
               <div className="space-y-0.5">
@@ -214,7 +238,7 @@ function PerformerList({ title, subtitle, items, favoriteTeam, direction }) {
 
 function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
   return (
-    <Card className="border-white/15 bg-slate-950/55 backdrop-blur-xl shadow-[0_30px_80px_rgba(7,13,31,0.45)]">
+    <Card className="border-slate-200 bg-white shadow-sm">
       <CardHeader className="pb-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -224,7 +248,7 @@ function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
               Softmax model projection loaded from <code>src/data/predicted_table.json</code>.
             </CardDescription>
           </div>
-          <Badge variant="outline" className="gap-1 border-amber-300/35 bg-amber-400/15 text-amber-100">
+          <Badge variant="outline" className="gap-1 border-amber-200 bg-amber-50 text-amber-700">
             <Sparkles className="h-3.5 w-3.5" />
             {rows.length} clubs
           </Badge>
@@ -236,9 +260,9 @@ function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
             Run <code>python src/MLMODEL.py</code> to regenerate <code>src/data/predicted_table.json</code>.
           </p>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-white/10">
+          <div className="overflow-hidden rounded-lg border border-slate-200">
             <Table>
-              <TableHeader className="bg-white/5">
+              <TableHeader className="bg-slate-50">
                 <TableRow className="border-b-0 hover:bg-transparent">
                   <TableHead>Pos</TableHead>
                   <TableHead>Team</TableHead>
@@ -257,20 +281,20 @@ function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
                   return (
                     <TableRow
                       key={`model-${row.Team}`}
-                      className={cn(isFavorite && 'bg-amber-500/10 hover:bg-amber-500/15')}
+                      className={cn(isFavorite && 'bg-amber-50 hover:bg-amber-100/60')}
                     >
-                      <TableCell className="w-14 font-semibold text-amber-200">{row.Position}</TableCell>
+                      <TableCell className="w-14 font-semibold text-amber-700">{row.Position}</TableCell>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <span
-                            className="h-2.5 w-2.5 rounded-full border border-white/20"
+                            className="h-2.5 w-2.5 rounded-full border border-slate-300"
                             style={{ backgroundColor: teamColors[normalizedRowTeam] || '#8ea2c0' }}
                           />
                           <span>{row.Team}</span>
                           {isFavorite && (
                             <Badge
                               variant="outline"
-                              className="ml-2 border-amber-300/35 bg-amber-500/15 text-[10px] uppercase tracking-[0.12em] text-amber-100"
+                              className="ml-2 border-amber-200 bg-amber-50 text-[10px] uppercase tracking-[0.12em] text-amber-700"
                             >
                               Favorite
                             </Badge>
@@ -350,29 +374,44 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_8%,rgba(14,116,144,0.24),transparent_44%),radial-gradient(circle_at_82%_15%,rgba(16,185,129,0.2),transparent_40%),radial-gradient(circle_at_50%_94%,rgba(250,204,21,0.14),transparent_48%)]" />
       <main className="relative z-10 mx-auto w-full max-w-[1320px] px-4 py-8 sm:px-6 md:py-12 lg:px-8 lg:py-16">
         <section className="grid items-start gap-6 lg:grid-cols-[1.35fr_0.9fr]">
-          <div className="space-y-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-sky-200/80">Premier League Predictor</p>
-            <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
-              Compare where the table is now against where your model thinks it will finish.
+          <div className="space-y-5">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Premier League Predictor</p>
+            <h1 className="max-w-4xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
+              Smarter Premier League Predictions, Backed by Data, Not Guesswork
             </h1>
-            <p className="max-w-2xl text-base leading-relaxed text-muted-foreground md:text-lg">
-              Shadcn components now drive the UI for cleaner hierarchy, tighter spacing, and stronger visual
-              consistency across controls, insights, and model output.
+            <p className="max-w-3xl text-lg leading-relaxed text-slate-700">
+              Match-by-match insights, team form analysis, and AI-driven predictions to help you stay ahead every
+              gameweek.
             </p>
+            <p className="max-w-3xl text-base leading-relaxed text-muted-foreground md:text-lg">
+              This platform delivers data-driven predictions for every Premier League fixture. By combining
+              statistical modelling, historical performance, and current team form, each forecast is designed to go
+              beyond surface-level analysis and highlight the factors that genuinely influence match outcomes.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
+                AI-driven forecasts
+              </Badge>
+              <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
+                Match-by-match analysis
+              </Badge>
+              <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
+                Structured model insights
+              </Badge>
+            </div>
           </div>
-          <Card className="border-white/15 bg-slate-950/55 backdrop-blur-xl shadow-[0_24px_70px_rgba(8,15,35,0.45)] lg:ml-auto lg:w-full lg:max-w-md">
+          <Card className="border-slate-200 bg-white shadow-sm lg:ml-auto lg:w-full lg:max-w-md">
             <CardHeader className="pb-4">
-              <CardTitle className="text-lg">Session Controls</CardTitle>
-              <CardDescription>Pin a club and track current vs projected output instantly.</CardDescription>
+              <CardTitle className="text-lg">Prediction Snapshot</CardTitle>
+              <CardDescription>Track one club and compare current output against the projected model view.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-0">
               <div className="space-y-2">
                 <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Favorite Club</p>
                 <Select value={favoriteTeam} onValueChange={setFavoriteTeam}>
-                  <SelectTrigger className="border-white/20 bg-black/20">
+                  <SelectTrigger className="border-slate-300 bg-white text-slate-900">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -385,7 +424,7 @@ export default function App() {
                 </Select>
               </div>
               {favoriteSnapshot && (
-                <div className="grid grid-cols-3 gap-2 rounded-lg border border-white/10 bg-white/5 p-3">
+                <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <div>
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Current</p>
                     <p className="mt-1 text-sm font-semibold tabular-nums">{favoriteSnapshot.points} pts</p>
@@ -406,8 +445,36 @@ export default function App() {
                 </div>
               )}
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Placeholder table simulation remains active until live CSV ingestion is wired to the frontend.
+                Predictions on this page are driven by the current project dataset and model output available in the
+                app.
               </p>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="mt-8">
+          <Card className="border-slate-200 bg-white shadow-sm">
+            <CardHeader className="pb-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">How It Works</p>
+              <CardTitle className="text-2xl">Every prediction is built on a structured approach.</CardTitle>
+              <CardDescription className="max-w-3xl">
+                Rather than relying on guesswork, the platform focuses on measurable signals that shape results across
+                a full Premier League season.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {methodology.map((item) => {
+                const Icon = item.icon
+                return (
+                  <div key={item.title} className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200">
+                      <Icon className="h-5 w-5 text-slate-700" />
+                    </div>
+                    <h3 className="text-base font-semibold text-slate-900">{item.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+                  </div>
+                )
+              })}
             </CardContent>
           </Card>
         </section>
@@ -441,7 +508,7 @@ export default function App() {
           <div className="hidden h-full min-h-[110px] items-center justify-center xl:flex">
             <div className="flex flex-col items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               <span>Now</span>
-              <div className="h-16 w-[2px] rounded-full bg-gradient-to-b from-sky-400 via-cyan-300 to-emerald-400" />
+              <div className="h-16 w-[2px] rounded-full bg-slate-300" />
               <span>Forecast</span>
             </div>
           </div>
