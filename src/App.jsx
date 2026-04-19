@@ -21,7 +21,6 @@ import {
 } from './components/ui/table'
 import { buildLastFiveForm, buildStandings, teamList } from './data/placeholder'
 import premOddsPredictionsRaw from './data/prem_odds_predictions_2024_25.csv?raw'
-import predictedTableData from './data/predicted_table.json'
 import { cn } from './lib/utils'
 
 const gameweeks = Array.from({ length: 38 }, (_, index) => index + 1)
@@ -229,6 +228,114 @@ function formatPercent(value) {
 function formatSigned(value, decimals = 1) {
   const fixed = value.toFixed(decimals)
   return value > 0 ? `+${fixed}` : fixed
+}
+
+function projectExpectedRecord(row) {
+  const played = row.Played
+  let bestRecord = { won: 0, drawn: 0, lost: played, points: 0 }
+  let bestKey = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, 0, 0]
+
+  for (let won = 0; won <= played; won += 1) {
+    for (let drawn = 0; drawn <= played - won; drawn += 1) {
+      const lost = played - won - drawn
+      const points = won * 3 + drawn
+      const pointsGap = Math.abs(points - row.ExpectedPoints)
+      const shapeGap =
+        Math.abs(won - row.expectedWins) +
+        Math.abs(drawn - row.expectedDraws) +
+        Math.abs(lost - row.expectedLosses)
+      const score = pointsGap * 4 + shapeGap
+      const key = [score, pointsGap, shapeGap, -won, -drawn]
+
+      let isBetter = false
+      for (let index = 0; index < key.length; index += 1) {
+        if (key[index] < bestKey[index]) {
+          isBetter = true
+          break
+        }
+        if (key[index] > bestKey[index]) break
+      }
+
+      if (isBetter) {
+        bestKey = key
+        bestRecord = { won, drawn, lost, points }
+      }
+    }
+  }
+
+  return bestRecord
+}
+
+function buildModelOutputTable(fixtures) {
+  const tableByTeam = new Map()
+
+  const ensureTeam = (team) => {
+    if (!tableByTeam.has(team)) {
+      tableByTeam.set(team, {
+        Team: team,
+        Played: 0,
+        Won: 0,
+        Drawn: 0,
+        Lost: 0,
+        Points: 0,
+        ExpectedPoints: 0,
+        expectedWins: 0,
+        expectedDraws: 0,
+        expectedLosses: 0,
+        formResults: [],
+      })
+    }
+    return tableByTeam.get(team)
+  }
+
+  const orderedFixtures = [...fixtures].sort(
+    (a, b) =>
+      a.matchDate.localeCompare(b.matchDate) ||
+      a.homeTeam.localeCompare(b.homeTeam) ||
+      a.awayTeam.localeCompare(b.awayTeam)
+  )
+
+  orderedFixtures.forEach((fixture) => {
+    const homeRow = ensureTeam(fixture.homeTeam)
+    const awayRow = ensureTeam(fixture.awayTeam)
+
+    homeRow.Played += 1
+    awayRow.Played += 1
+
+    homeRow.expectedWins += fixture.modelHomeProb
+    homeRow.expectedDraws += fixture.modelDrawProb
+    homeRow.expectedLosses += fixture.modelAwayProb
+    homeRow.ExpectedPoints += fixture.modelHomeProb * 3 + fixture.modelDrawProb
+
+    awayRow.expectedWins += fixture.modelAwayProb
+    awayRow.expectedDraws += fixture.modelDrawProb
+    awayRow.expectedLosses += fixture.modelHomeProb
+    awayRow.ExpectedPoints += fixture.modelAwayProb * 3 + fixture.modelDrawProb
+
+    const modelPick = deriveModelPickCode(fixture)
+    homeRow.formResults.push(outcomeForClub(modelPick, true))
+    awayRow.formResults.push(outcomeForClub(modelPick, false))
+  })
+
+  return [...tableByTeam.values()]
+    .map((row) => {
+      const projected = projectExpectedRecord(row)
+      const form = row.formResults.slice(-5)
+      while (form.length < 5) form.unshift(null)
+
+      return {
+        Team: row.Team,
+        Played: row.Played,
+        Won: projected.won,
+        Drawn: projected.drawn,
+        Lost: projected.lost,
+        Points: projected.points,
+        ExpectedPoints: Number(row.ExpectedPoints.toFixed(2)),
+        Form: form,
+      }
+    })
+    .sort((a, b) => b.ExpectedPoints - a.ExpectedPoints || b.Points - a.Points || a.Team.localeCompare(b.Team))
+    .map((row, index) => ({ ...row, Position: index + 1 }))
 }
 
 function comparisonDeltaClass(delta, inverse = false) {
@@ -478,8 +585,9 @@ function FinalModelTableCard({ rows, favoriteTeam }) {
             <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Model Output</p>
             <CardTitle className="text-2xl">Predicted Final Premier League Table</CardTitle>
             <CardDescription className="mt-2">
-              Softmax model projection loaded from <code>src/data/predicted_table.json</code>. Form uses W = win, D
-              = draw, and L = loss over the latest five matches.
+              Softmax model projection derived from <code>src/data/prem_odds_predictions_2024_25.csv</code>. Form
+              uses W = win, D = draw, and L = loss over the latest five predicted matches. Pts/W/D/L are an
+              expectation-fit projection; xPts comes directly from match probabilities.
             </CardDescription>
           </div>
           <Badge variant="outline" className="gap-1 border-amber-200 bg-amber-50 text-amber-700">
@@ -491,7 +599,7 @@ function FinalModelTableCard({ rows, favoriteTeam }) {
       <CardContent className="pt-0">
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Run <code>python src/MLMODEL.py</code> to regenerate <code>src/data/predicted_table.json</code>.
+            Run <code>python src/MLMODEL.py</code> to regenerate <code>src/data/prem_odds_predictions_2024_25.csv</code>.
           </p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -513,7 +621,6 @@ function FinalModelTableCard({ rows, favoriteTeam }) {
                 {rows.map((row) => {
                   const normalizedRowTeam = normalizeTeamName(row.Team)
                   const isFavorite = normalizeTeamName(favoriteTeam) === normalizedRowTeam
-                  const modelForm = buildLastFiveForm(normalizedRowTeam, Number(row.Played), 139)
                   return (
                     <TableRow
                       key={`model-${row.Team}`}
@@ -535,7 +642,7 @@ function FinalModelTableCard({ rows, favoriteTeam }) {
                         {Number(row.ExpectedPoints).toFixed(2)}
                       </TableCell>
                       <TableCell>
-                        <FormChips results={modelForm} />
+                        <FormChips results={row.Form} />
                       </TableCell>
                     </TableRow>
                   )
@@ -727,7 +834,7 @@ function MethodologyPage() {
   )
 }
 
-function ModelOutputPage({ favoriteTeam }) {
+function ModelOutputPage({ favoriteTeam, modelOutputTable }) {
   return (
     <section className="space-y-4">
       <div className="space-y-2">
@@ -737,7 +844,7 @@ function ModelOutputPage({ favoriteTeam }) {
           View the complete softmax projection in a dedicated page without the rest of the dashboard content.
         </p>
       </div>
-      <FinalModelTableCard rows={predictedTableData} favoriteTeam={favoriteTeam} />
+      <FinalModelTableCard rows={modelOutputTable} favoriteTeam={favoriteTeam} />
     </section>
   )
 }
@@ -973,6 +1080,7 @@ export default function App() {
   const [selectedClub, setSelectedClub] = useState(normalizeTeamName(teamList[0].team))
 
   const predictionFixtures = useMemo(() => parsePredictionFixtures(premOddsPredictionsRaw), [])
+  const modelOutputTable = useMemo(() => buildModelOutputTable(predictionFixtures), [predictionFixtures])
 
   const availableClubs = useMemo(() => {
     const clubs = new Set()
@@ -1139,7 +1247,10 @@ export default function App() {
             }
           />
           <Route path="/methodology" element={<MethodologyPage />} />
-          <Route path="/model-output" element={<ModelOutputPage favoriteTeam={favoriteTeam} />} />
+          <Route
+            path="/model-output"
+            element={<ModelOutputPage favoriteTeam={favoriteTeam} modelOutputTable={modelOutputTable} />}
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
