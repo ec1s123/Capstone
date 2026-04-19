@@ -14,6 +14,31 @@ const wobble = (team, week, mod, offset) => {
   return (seed % mod) - Math.floor(mod / 2)
 }
 
+const formWindowSize = 5
+
+const buildFormResult = (team, week, offset) => {
+  const sample = (hashSeed(team) + week * 19 + offset) % 100
+  if (sample < 44) return 'W'
+  if (sample < 70) return 'D'
+  return 'L'
+}
+
+export function buildLastFiveForm(team, gameweek, offset = 0) {
+  const safeWeek = clamp(gameweek, 0, 38)
+  const startWeek = Math.max(1, safeWeek - formWindowSize + 1)
+  const recentResults = []
+
+  for (let week = startWeek; week <= safeWeek; week += 1) {
+    recentResults.push(buildFormResult(team, week, offset))
+  }
+
+  while (recentResults.length < formWindowSize) {
+    recentResults.unshift(null)
+  }
+
+  return recentResults
+}
+
 export const teamList = [
   { team: 'Arsenal', color: '#ef233c', totalPoints: 86, predictedTotal: 83 },
   { team: 'Aston Villa', color: '#7d3c98', totalPoints: 63, predictedTotal: 60 },
@@ -56,7 +81,9 @@ export function buildStandings(gameweek) {
       color: team.color,
       played: gameweek,
       points,
-      predictedPoints
+      predictedPoints,
+      form: buildLastFiveForm(team.team, gameweek, 11),
+      predictedForm: buildLastFiveForm(team.team, gameweek, 71),
     }
   })
 }

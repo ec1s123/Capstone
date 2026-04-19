@@ -2,26 +2,26 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: dark;
-  --background: 223 47% 8%;
-  --foreground: 216 27% 95%;
-  --card: 224 37% 12%;
-  --card-foreground: 216 27% 95%;
-  --popover: 225 35% 12%;
-  --popover-foreground: 216 27% 95%;
-  --primary: 195 92% 53%;
-  --primary-foreground: 222 47% 10%;
-  --secondary: 225 28% 18%;
-  --secondary-foreground: 216 26% 92%;
-  --muted: 225 24% 20%;
-  --muted-foreground: 219 14% 70%;
-  --accent: 154 83% 47%;
-  --accent-foreground: 222 48% 11%;
-  --destructive: 351 84% 60%;
+  color-scheme: light;
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
-  --border: 224 23% 26%;
-  --input: 224 23% 26%;
-  --ring: 195 92% 53%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 221 83% 53%;
   --radius: 0.9rem;
 }
 
@@ -34,11 +34,7 @@ body {
   padding: 0;
   min-height: 100vh;
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-  background:
-    radial-gradient(1200px circle at 6% -10%, rgba(8, 145, 178, 0.35), transparent 50%),
-    radial-gradient(900px circle at 92% 8%, rgba(16, 185, 129, 0.22), transparent 46%),
-    radial-gradient(700px circle at 50% 115%, rgba(249, 115, 22, 0.2), transparent 58%),
-    hsl(var(--background));
+  background: hsl(var(--background));
   color: hsl(var(--foreground));
 }
 
@@ -53,5 +49,5 @@ h3 {
 }
 
 ::selection {
-  background: rgba(56, 189, 248, 0.28);
+  background: rgba(59, 130, 246, 0.22);
 }
