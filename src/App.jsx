@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow
 } from './components/ui/table'
-import { buildStandings, teamList } from './data/placeholder'
+import { buildLastFiveForm, buildStandings, teamList } from './data/placeholder'
 import predictedTableData from './data/predicted_table.json'
 import { cn } from './lib/utils'
 
@@ -53,6 +53,32 @@ const teamAliases = {
   "Nott'm Forest": 'Nottingham Forest',
 }
 
+const teamDomains = {
+  Arsenal: 'arsenal.com',
+  'Aston Villa': 'avfc.co.uk',
+  Bournemouth: 'afcb.co.uk',
+  Brentford: 'brentfordfc.com',
+  Brighton: 'brightonandhovealbion.com',
+  Burnley: 'burnleyfootballclub.com',
+  Chelsea: 'chelseafc.com',
+  'Crystal Palace': 'cpfc.co.uk',
+  Everton: 'evertonfc.com',
+  Fulham: 'fulhamfc.com',
+  Ipswich: 'itfc.co.uk',
+  Leicester: 'lcfc.com',
+  Liverpool: 'liverpoolfc.com',
+  'Luton Town': 'lutontown.co.uk',
+  'Manchester City': 'mancity.com',
+  'Manchester United': 'manutd.com',
+  'Newcastle United': 'nufc.co.uk',
+  'Nottingham Forest': 'nottinghamforest.co.uk',
+  Southampton: 'southamptonfc.com',
+  'Sheffield United': 'sufc.co.uk',
+  Tottenham: 'tottenhamhotspur.com',
+  'West Ham': 'whufc.com',
+  Wolves: 'wolves.co.uk',
+}
+
 const toneMap = {
   current: {
     eyebrow: 'Live Table',
@@ -80,6 +106,22 @@ function normalizeTeamName(team) {
   return teamAliases[team] ?? team
 }
 
+function getClubLogoUrl(team) {
+  const normalizedTeam = normalizeTeamName(team)
+  const domain = teamDomains[normalizedTeam]
+  if (!domain) return null
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`
+}
+
+function getTeamInitials(team) {
+  return team
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase())
+    .slice(0, 2)
+    .join('')
+}
+
 function sortByNumber(key) {
   return (a, b) => b[key] - a[key]
 }
@@ -88,6 +130,60 @@ function deltaClass(delta) {
   if (delta > 0) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (delta < 0) return 'border-rose-200 bg-rose-50 text-rose-700'
   return 'border-slate-200 bg-slate-100 text-slate-600'
+}
+
+function formResultClass(result) {
+  if (result === 'W') return 'bg-emerald-700 text-white'
+  if (result === 'L') return 'bg-rose-600 text-white'
+  if (result === 'D') return 'bg-slate-500 text-white'
+  return 'bg-slate-200 text-slate-400'
+}
+
+function ClubLogo({ team }) {
+  const [hasError, setHasError] = useState(false)
+  const normalizedTeam = normalizeTeamName(team)
+  const logoUrl = getClubLogoUrl(normalizedTeam)
+  const initials = getTeamInitials(normalizedTeam)
+
+  if (!logoUrl || hasError) {
+    return (
+      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-[9px] font-semibold text-slate-700">
+        {initials}
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={logoUrl}
+      alt={`${normalizedTeam} crest`}
+      className="h-6 w-6 shrink-0 rounded-full border border-slate-200 bg-white object-cover p-[1px]"
+      loading="lazy"
+      onError={() => setHasError(true)}
+    />
+  )
+}
+
+function FormChips({ results }) {
+  const safeResults = Array.isArray(results) ? results : [null, null, null, null, null]
+
+  return (
+    <div className="flex min-w-[150px] items-center gap-1">
+      {safeResults.map((result, index) => (
+        <span
+          key={`${result ?? 'na'}-${index}`}
+          className={cn(
+            'inline-flex h-6 w-6 items-center justify-center rounded-sm text-[10px] font-bold tracking-[0.04em]',
+            formResultClass(result)
+          )}
+          aria-label={result ? `Result ${result}` : 'No result'}
+          title={result ?? 'No result'}
+        >
+          {result ?? '-'}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange }) {
@@ -106,6 +202,9 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
           <div>
             <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{tone.eyebrow}</p>
             <CardTitle className="text-xl">{title}</CardTitle>
+            <CardDescription className="mt-1 text-xs">
+              Form (W = win, D = draw, L = loss) is shown as the last five matches, oldest to newest.
+            </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select value={String(gameweek)} onValueChange={(value) => onGameweekChange(Number(value))}>
@@ -137,6 +236,7 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
                 <TableHead>Team</TableHead>
                 <TableHead className="text-right">P</TableHead>
                 <TableHead className="text-right">{isCurrentMode ? 'Pts' : 'Pred Pts'}</TableHead>
+                <TableHead className="min-w-[170px]">Form (Last 5)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -147,10 +247,7 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
                     <TableCell className={cn('w-14 font-semibold', tone.pos)}>{row.position}</TableCell>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full border border-slate-300"
-                          style={{ backgroundColor: row.color }}
-                        />
+                        <ClubLogo team={row.team} />
                         <span>{row.team}</span>
                         {isFavorite && (
                           <Badge
@@ -165,6 +262,9 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
                     <TableCell className="text-right tabular-nums">{row.played}</TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">
                       {isCurrentMode ? row.points : row.predictedPoints}
+                    </TableCell>
+                    <TableCell>
+                      <FormChips results={isCurrentMode ? row.form : row.predictedForm} />
                     </TableCell>
                   </TableRow>
                 )
@@ -215,7 +315,10 @@ function PerformerList({ title, subtitle, items, favoriteTeam, direction }) {
               )}
             >
               <div className="space-y-0.5">
-                <p className="text-sm font-semibold">{item.team}</p>
+                <div className="flex items-center gap-2">
+                  <ClubLogo team={item.team} />
+                  <p className="text-sm font-semibold">{item.team}</p>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Current {item.points} vs predicted {item.predictedPoints}
                 </p>
@@ -236,7 +339,7 @@ function PerformerList({ title, subtitle, items, favoriteTeam, direction }) {
   )
 }
 
-function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
+function FinalModelTableCard({ rows, favoriteTeam }) {
   return (
     <Card className="border-slate-200 bg-white shadow-sm">
       <CardHeader className="pb-4">
@@ -245,7 +348,7 @@ function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
             <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Model Output</p>
             <CardTitle className="text-2xl">Predicted Final Premier League Table</CardTitle>
             <CardDescription className="mt-2">
-              Softmax model projection loaded from <code>src/data/predicted_table.json</code>.
+              Softmax model projection loaded from <code>src/data/predicted_table.json</code>. Form uses W = win, D = draw, and L = loss over the latest five matches.
             </CardDescription>
           </div>
           <Badge variant="outline" className="gap-1 border-amber-200 bg-amber-50 text-amber-700">
@@ -272,12 +375,14 @@ function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
                   <TableHead className="text-right">L</TableHead>
                   <TableHead className="text-right">Pts</TableHead>
                   <TableHead className="text-right">xPts</TableHead>
+                  <TableHead className="min-w-[170px]">Form (Last 5)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row) => {
                   const normalizedRowTeam = normalizeTeamName(row.Team)
                   const isFavorite = normalizeTeamName(favoriteTeam) === normalizedRowTeam
+                  const modelForm = buildLastFiveForm(normalizedRowTeam, Number(row.Played), 139)
                   return (
                     <TableRow
                       key={`model-${row.Team}`}
@@ -286,10 +391,7 @@ function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
                       <TableCell className="w-14 font-semibold text-amber-700">{row.Position}</TableCell>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
-                          <span
-                            className="h-2.5 w-2.5 rounded-full border border-slate-300"
-                            style={{ backgroundColor: teamColors[normalizedRowTeam] || '#8ea2c0' }}
-                          />
+                          <ClubLogo team={normalizedRowTeam} />
                           <span>{row.Team}</span>
                           {isFavorite && (
                             <Badge
@@ -309,6 +411,9 @@ function FinalModelTableCard({ rows, favoriteTeam, teamColors }) {
                       <TableCell className="text-right tabular-nums">
                         {Number(row.ExpectedPoints).toFixed(2)}
                       </TableCell>
+                      <TableCell>
+                        <FormChips results={modelForm} />
+                      </TableCell>
                     </TableRow>
                   )
                 })}
@@ -325,11 +430,6 @@ export default function App() {
   const [currentGameweek, setCurrentGameweek] = useState(24)
   const [predictedGameweek, setPredictedGameweek] = useState(24)
   const [favoriteTeam, setFavoriteTeam] = useState(teamList[0].team)
-
-  const teamColors = useMemo(
-    () => Object.fromEntries(teamList.map((team) => [normalizeTeamName(team.team), team.color])),
-    []
-  )
 
   const { currentTable, predictedTable, topOver, topUnder, favoriteSnapshot } = useMemo(() => {
     const currentRows = buildStandings(currentGameweek)
@@ -417,7 +517,10 @@ export default function App() {
                   <SelectContent>
                     {teamList.map((team) => (
                       <SelectItem key={team.team} value={team.team}>
-                        {team.team}
+                        <div className="flex items-center gap-2">
+                          <ClubLogo team={team.team} />
+                          <span>{team.team}</span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -526,7 +629,6 @@ export default function App() {
           <FinalModelTableCard
             rows={predictedTableData}
             favoriteTeam={favoriteTeam}
-            teamColors={teamColors}
           />
         </section>
       </main>
