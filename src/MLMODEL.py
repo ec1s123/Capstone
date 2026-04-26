@@ -13,8 +13,6 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "Prem-2026-2003"
 OUTPUT_DIR = Path(__file__).resolve().parent / "data"
 
-TEST_SEASON = "2024/25"
-TEST_SEASON_START = 2024
 RANDOM_SEED = 42
 CLASS_LABELS = np.array(["H", "D", "A"])
 RESULT_NAMES = {"H": "Home Win", "D": "Draw", "A": "Away Win"}
@@ -131,6 +129,13 @@ def load_match_data() -> pd.DataFrame:
 
     matches = matches.dropna(
         subset=["HomeTeam", "AwayTeam", "MatchDate", "FTR", "y", "B365H", "B365D", "B365A"]
+    ).copy()
+
+    # Some datasets overlap (for example, an updated season file plus an older rolling E0.csv snapshot).
+    # Keep the first encountered record for each fixture key to avoid double-counting the same match.
+    matches = matches.drop_duplicates(
+        subset=["MatchDate", "HomeTeam", "AwayTeam"],
+        keep="first",
     ).copy()
 
     inverse_odds = 1.0 / matches[["B365H", "B365D", "B365A"]].to_numpy(dtype=np.float64)
@@ -303,9 +308,16 @@ def save_prediction_report(
     model_probabilities: np.ndarray,
     market_probabilities: np.ndarray,
 ) -> None:
-    prediction_frame = test_frame[
-        ["Season", "MatchDate", "HomeTeam", "AwayTeam", "FTR", "B365H", "B365D", "B365A"]
-    ].copy()
+    base_columns = ["Season", "MatchDate", "HomeTeam", "AwayTeam", "FTR", "B365H", "B365D", "B365A"]
+    stat_columns = ["FTHG", "FTAG", "HS", "AS", "HST", "AST", "HC", "AC", "HY", "AY", "HR", "AR"]
+
+    prediction_frame = test_frame[base_columns].copy()
+    for column in stat_columns:
+        if column in test_frame.columns:
+            prediction_frame[column] = pd.to_numeric(test_frame[column], errors="coerce")
+        else:
+            prediction_frame[column] = np.nan
+
     prediction_frame["MatchDate"] = prediction_frame["MatchDate"].dt.strftime("%Y-%m-%d")
     prediction_frame["ActualResult"] = prediction_frame["FTR"].map(RESULT_NAMES)
     prediction_frame["ModelPrediction"] = CLASS_LABELS[model_probabilities.argmax(axis=1)]
@@ -343,8 +355,11 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     matches = load_match_data()
 
-    train_frame = matches[matches["SeasonStart"] < TEST_SEASON_START].copy()
-    test_frame = matches[matches["Season"] == TEST_SEASON].copy()
+    latest_season_start = int(matches["SeasonStart"].max())
+    latest_season_label = season_label(latest_season_start)
+
+    train_frame = matches[matches["SeasonStart"] < latest_season_start].copy()
+    test_frame = matches[matches["SeasonStart"] == latest_season_start].copy()
     production_frame = matches.copy()
 
     if train_frame.empty or test_frame.empty:
@@ -378,12 +393,33 @@ def main() -> None:
         ODDS_MODEL_CONFIG,
     )
 
-    predictions_path = OUTPUT_DIR / "prem_odds_predictions_2024_25.csv"
+    full_probabilities = predict_probabilities(production_model, production_features)
+    full_market_probabilities = production_frame[["prob_home", "prob_draw", "prob_away"]].to_numpy(
+        dtype=np.float64
+    )
+
+    season_safe_label = latest_season_label.replace("/", "_")
+    predictions_path = OUTPUT_DIR / f"prem_odds_predictions_{season_safe_label}.csv"
+    predictions_all_path = OUTPUT_DIR / "prem_odds_predictions_all.csv"
     metrics_path = OUTPUT_DIR / "prem_odds_metrics.json"
     model_path = OUTPUT_DIR / "prem_odds_softmax_model.npz"
 
     save_prediction_report(predictions_path, test_frame, odds_probabilities, market_probabilities)
+    save_prediction_report(
+        predictions_all_path,
+        production_frame,
+        full_probabilities,
+        full_market_probabilities,
+    )
     save_model_artifact(model_path, production_model, production_frame["MatchDate"].max())
+
+    season_counts = (
+        matches.groupby(["SeasonStart", "Season"]).size().reset_index(name="matches").sort_values("SeasonStart")
+    )
+    season_count_payload = {
+        row["Season"]: int(row["matches"])
+        for row in season_counts.to_dict("records")
+    }
 
     metrics_payload = {
         "data_directory": str(DATA_DIR),
@@ -393,7 +429,8 @@ def main() -> None:
         "data_end": matches["MatchDate"].max().strftime("%Y-%m-%d"),
         "train_matches": int(len(train_frame)),
         "test_matches": int(len(test_frame)),
-        "test_season": TEST_SEASON,
+        "test_season": latest_season_label,
+        "season_match_counts": season_count_payload,
         "models": {
             "teams_only_softmax": baseline_metrics,
             "teams_plus_odds_softmax": odds_metrics,
@@ -412,7 +449,7 @@ def main() -> None:
     )
     print("Using pre-match features only. Post-match stats were excluded to avoid leaking the result.")
     print()
-    print(f"Backtest on {TEST_SEASON}:")
+    print(f"Backtest on {latest_season_label}:")
     print(
         "  teams_only_softmax       "
         f"accuracy={baseline_metrics['accuracy']:.4f}  log_loss={baseline_metrics['log_loss']:.4f}"
@@ -426,7 +463,8 @@ def main() -> None:
         f"accuracy={market_metrics['accuracy']:.4f}  log_loss={market_metrics['log_loss']:.4f}"
     )
     print()
-    print(f"Saved prediction report: {predictions_path}")
+    print(f"Saved current-season prediction report: {predictions_path}")
+    print(f"Saved all-season prediction report:     {predictions_all_path}")
     print(f"Saved metrics summary:  {metrics_path}")
     print(f"Saved model artifact:   {model_path}")
 

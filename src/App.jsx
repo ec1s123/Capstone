@@ -1,5 +1,16 @@
-import { useMemo, useState } from 'react'
-import { Activity, BrainCircuit, Home, Sparkles, TrendingDown, TrendingUp } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  Activity,
+  BrainCircuit,
+  ChevronLeft,
+  ChevronRight,
+  Columns3,
+  Home,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  X,
+} from 'lucide-react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { Badge } from './components/ui/badge'
@@ -19,8 +30,8 @@ import {
   TableHeader,
   TableRow
 } from './components/ui/table'
-import { buildLastFiveForm, buildStandings, teamList } from './data/placeholder'
-import premOddsPredictionsRaw from './data/prem_odds_predictions_2024_25.csv?raw'
+import { teamList } from './data/placeholder'
+import premOddsPredictionsRaw from './data/prem_odds_predictions_all.csv?raw'
 import { cn } from './lib/utils'
 
 const gameweeks = Array.from({ length: 38 }, (_, index) => index + 1)
@@ -28,9 +39,22 @@ const gameweeks = Array.from({ length: 38 }, (_, index) => index + 1)
 const navItems = [
   { to: '/', label: 'Overview' },
   { to: '/tables', label: 'Tables' },
+  { to: '/matches', label: 'Matches' },
   { to: '/club', label: 'Club' },
   { to: '/methodology', label: 'Methodology' },
   { to: '/model-output', label: 'Model Output' },
+]
+
+const MATCH_COLUMN_STORAGE_KEY = 'premier_predict.matches.columns.v1'
+const MATCH_COLUMN_DEFINITIONS = [
+  { key: 'date', label: 'Date' },
+  { key: 'home', label: 'Home' },
+  { key: 'away', label: 'Away' },
+  { key: 'score', label: 'Score' },
+  { key: 'result', label: 'Result' },
+  { key: 'modelPick', label: 'Model Pick' },
+  { key: 'confidence', label: 'Confidence' },
+  { key: 'prediction', label: 'Prediction' },
 ]
 
 const methodology = [
@@ -75,6 +99,7 @@ const teamDomains = {
   Everton: 'evertonfc.com',
   Fulham: 'fulhamfc.com',
   Ipswich: 'itfc.co.uk',
+  Leeds: 'leedsunited.com',
   Leicester: 'lcfc.com',
   Liverpool: 'liverpoolfc.com',
   'Luton Town': 'lutontown.co.uk',
@@ -84,6 +109,7 @@ const teamDomains = {
   'Nottingham Forest': 'nottinghamforest.co.uk',
   Southampton: 'southamptonfc.com',
   'Sheffield United': 'sufc.co.uk',
+  Sunderland: 'safc.com',
   Tottenham: 'tottenhamhotspur.com',
   'West Ham': 'whufc.com',
   Wolves: 'wolves.co.uk',
@@ -131,10 +157,6 @@ function getTeamInitials(team) {
     .join('')
 }
 
-function sortByNumber(key) {
-  return (a, b) => b[key] - a[key]
-}
-
 function deltaClass(delta) {
   if (delta > 0) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (delta < 0) return 'border-rose-200 bg-rose-50 text-rose-700'
@@ -154,16 +176,67 @@ const outcomeLabelMap = {
   L: 'Loss',
 }
 
+const matchOutcomeLabelMap = {
+  H: 'Home Win',
+  D: 'Draw',
+  A: 'Away Win',
+}
+
+function defaultMatchColumnVisibility() {
+  return Object.fromEntries(MATCH_COLUMN_DEFINITIONS.map((column) => [column.key, true]))
+}
+
+function sanitizeMatchColumnVisibility(rawVisibility) {
+  const defaults = defaultMatchColumnVisibility()
+  if (!rawVisibility || typeof rawVisibility !== 'object') return defaults
+
+  return MATCH_COLUMN_DEFINITIONS.reduce((accumulator, column) => {
+    const rawValue = rawVisibility[column.key]
+    accumulator[column.key] = typeof rawValue === 'boolean' ? rawValue : defaults[column.key]
+    return accumulator
+  }, {})
+}
+
+function readCachedMatchColumnVisibility() {
+  if (typeof window === 'undefined') return defaultMatchColumnVisibility()
+  try {
+    const cachedValue = window.localStorage.getItem(MATCH_COLUMN_STORAGE_KEY)
+    if (!cachedValue) return defaultMatchColumnVisibility()
+    return sanitizeMatchColumnVisibility(JSON.parse(cachedValue))
+  } catch {
+    return defaultMatchColumnVisibility()
+  }
+}
+
+function seasonStartFromLabel(seasonLabel) {
+  const [startToken] = String(seasonLabel).split('/')
+  const parsed = Number.parseInt(startToken, 10)
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY
+}
+
+function inferSeasonFromMatchDate(dateValue) {
+  const parsedDate = new Date(dateValue)
+  if (Number.isNaN(parsedDate.getTime())) return ''
+  const year = parsedDate.getUTCFullYear()
+  const month = parsedDate.getUTCMonth() + 1
+  const seasonStart = month >= 7 ? year : year - 1
+  return `${seasonStart}/${String(seasonStart + 1).slice(-2)}`
+}
+
 function parsePredictionFixtures(rawCsv) {
   const rows = rawCsv.trim().split(/\r?\n/)
   if (rows.length < 2) return []
 
-  const headers = rows[0].split(',')
+  const headers = rows[0].split(',').map((header) => header.replace(/^\uFEFF/, '').trim())
   const headerIndex = Object.fromEntries(headers.map((header, index) => [header, index]))
   const readValue = (values, key) => values[headerIndex[key]] ?? ''
   const asNumber = (value) => {
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : 0
+  }
+  const asNullableNumber = (value) => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
   }
 
   return rows
@@ -171,15 +244,32 @@ function parsePredictionFixtures(rawCsv) {
     .filter(Boolean)
     .map((line) => {
       const values = line.split(',')
+      const matchDate = readValue(values, 'MatchDate')
       const homeTeam = normalizeTeamName(readValue(values, 'HomeTeam'))
       const awayTeam = normalizeTeamName(readValue(values, 'AwayTeam'))
+      const season = readValue(values, 'Season') || inferSeasonFromMatchDate(matchDate)
       return {
-        id: `${readValue(values, 'MatchDate')}-${homeTeam}-${awayTeam}`,
-        season: readValue(values, 'Season'),
-        matchDate: readValue(values, 'MatchDate'),
+        id: `${matchDate}-${homeTeam}-${awayTeam}`,
+        season,
+        matchDate,
         homeTeam,
         awayTeam,
         fullTimeResult: readValue(values, 'FTR'),
+        homeGoals: asNullableNumber(readValue(values, 'FTHG')),
+        awayGoals: asNullableNumber(readValue(values, 'FTAG')),
+        homeShots: asNullableNumber(readValue(values, 'HS')),
+        awayShots: asNullableNumber(readValue(values, 'AS')),
+        homeShotsOnTarget: asNullableNumber(readValue(values, 'HST')),
+        awayShotsOnTarget: asNullableNumber(readValue(values, 'AST')),
+        homeCorners: asNullableNumber(readValue(values, 'HC')),
+        awayCorners: asNullableNumber(readValue(values, 'AC')),
+        homeYellowCards: asNullableNumber(readValue(values, 'HY')),
+        awayYellowCards: asNullableNumber(readValue(values, 'AY')),
+        homeRedCards: asNullableNumber(readValue(values, 'HR')),
+        awayRedCards: asNullableNumber(readValue(values, 'AR')),
+        marketHomeProb: asNumber(readValue(values, 'MarketHomeProb')),
+        marketDrawProb: asNumber(readValue(values, 'MarketDrawProb')),
+        marketAwayProb: asNumber(readValue(values, 'MarketAwayProb')),
         modelHomeProb: asNumber(readValue(values, 'ModelHomeProb')),
         modelDrawProb: asNumber(readValue(values, 'ModelDrawProb')),
         modelAwayProb: asNumber(readValue(values, 'ModelAwayProb')),
@@ -219,6 +309,22 @@ function confidenceBadgeClass(value) {
   if (value >= 0.6) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (value >= 0.45) return 'border-amber-200 bg-amber-50 text-amber-700'
   return 'border-slate-200 bg-slate-100 text-slate-700'
+}
+
+function matchOutcomeBadgeClass(resultCode) {
+  if (resultCode === 'H') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (resultCode === 'A') return 'border-rose-200 bg-rose-50 text-rose-700'
+  return 'border-slate-200 bg-slate-100 text-slate-700'
+}
+
+function formatScoreline(homeGoals, awayGoals) {
+  if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return '-'
+  return `${homeGoals}-${awayGoals}`
+}
+
+function formatStatPair(homeValue, awayValue) {
+  if (!Number.isFinite(homeValue) || !Number.isFinite(awayValue)) return '-'
+  return `${homeValue}-${awayValue}`
 }
 
 function formatPercent(value) {
@@ -266,6 +372,103 @@ function projectExpectedRecord(row) {
   return bestRecord
 }
 
+function emptyForm() {
+  return [null, null, null, null, null]
+}
+
+function normalizeRecentForm(results) {
+  const form = results.slice(-5)
+  while (form.length < 5) form.unshift(null)
+  return form
+}
+
+function sortFixturesChronologically(fixtures) {
+  return [...fixtures].sort(
+    (a, b) =>
+      a.matchDate.localeCompare(b.matchDate) ||
+      a.homeTeam.localeCompare(b.homeTeam) ||
+      a.awayTeam.localeCompare(b.awayTeam)
+  )
+}
+
+function filterFixturesByGameweek(fixtures, gameweekLimit) {
+  const safeLimit = Math.max(1, Math.min(38, Number(gameweekLimit) || 38))
+  const orderedFixtures = sortFixturesChronologically(fixtures)
+  const playedByTeam = new Map()
+  const limitedFixtures = []
+
+  orderedFixtures.forEach((fixture) => {
+    const nextHomePlayed = (playedByTeam.get(fixture.homeTeam) ?? 0) + 1
+    const nextAwayPlayed = (playedByTeam.get(fixture.awayTeam) ?? 0) + 1
+    playedByTeam.set(fixture.homeTeam, nextHomePlayed)
+    playedByTeam.set(fixture.awayTeam, nextAwayPlayed)
+
+    if (nextHomePlayed <= safeLimit && nextAwayPlayed <= safeLimit) {
+      limitedFixtures.push(fixture)
+    }
+  })
+
+  return limitedFixtures
+}
+
+function getSeasonCurrentGameweek(fixtures) {
+  if (!fixtures.length) return 1
+  const playedByTeam = new Map()
+  sortFixturesChronologically(fixtures).forEach((fixture) => {
+    playedByTeam.set(fixture.homeTeam, (playedByTeam.get(fixture.homeTeam) ?? 0) + 1)
+    playedByTeam.set(fixture.awayTeam, (playedByTeam.get(fixture.awayTeam) ?? 0) + 1)
+  })
+  return Math.max(...playedByTeam.values())
+}
+
+function buildActualTable(fixtures, allTeams) {
+  const tableByTeam = new Map()
+  const orderedFixtures = sortFixturesChronologically(fixtures)
+
+  const ensureTeam = (team) => {
+    if (!tableByTeam.has(team)) {
+      tableByTeam.set(team, {
+        team,
+        played: 0,
+        points: 0,
+        formResults: [],
+      })
+    }
+    return tableByTeam.get(team)
+  }
+
+  allTeams.forEach((team) => {
+    ensureTeam(team)
+  })
+
+  orderedFixtures.forEach((fixture) => {
+    const homeRow = ensureTeam(fixture.homeTeam)
+    const awayRow = ensureTeam(fixture.awayTeam)
+
+    homeRow.played += 1
+    awayRow.played += 1
+
+    const homeOutcome = outcomeForClub(fixture.fullTimeResult, true)
+    const awayOutcome = outcomeForClub(fixture.fullTimeResult, false)
+    homeRow.formResults.push(homeOutcome)
+    awayRow.formResults.push(awayOutcome)
+
+    if (homeOutcome === 'W') homeRow.points += 3
+    if (homeOutcome === 'D') homeRow.points += 1
+    if (awayOutcome === 'W') awayRow.points += 3
+    if (awayOutcome === 'D') awayRow.points += 1
+  })
+
+  return [...tableByTeam.values()]
+    .map((row) => ({
+      team: row.team,
+      played: row.played,
+      points: row.points,
+      form: normalizeRecentForm(row.formResults),
+    }))
+    .sort((a, b) => b.points - a.points || a.team.localeCompare(b.team))
+}
+
 function buildModelOutputTable(fixtures) {
   const tableByTeam = new Map()
 
@@ -288,12 +491,7 @@ function buildModelOutputTable(fixtures) {
     return tableByTeam.get(team)
   }
 
-  const orderedFixtures = [...fixtures].sort(
-    (a, b) =>
-      a.matchDate.localeCompare(b.matchDate) ||
-      a.homeTeam.localeCompare(b.homeTeam) ||
-      a.awayTeam.localeCompare(b.awayTeam)
-  )
+  const orderedFixtures = sortFixturesChronologically(fixtures)
 
   orderedFixtures.forEach((fixture) => {
     const homeRow = ensureTeam(fixture.homeTeam)
@@ -320,8 +518,7 @@ function buildModelOutputTable(fixtures) {
   return [...tableByTeam.values()]
     .map((row) => {
       const projected = projectExpectedRecord(row)
-      const form = row.formResults.slice(-5)
-      while (form.length < 5) form.unshift(null)
+      const form = normalizeRecentForm(row.formResults)
 
       return {
         Team: row.Team,
@@ -416,6 +613,26 @@ function FormChips({ results }) {
           {result ?? '-'}
         </span>
       ))}
+    </div>
+  )
+}
+
+function SeasonSelector({ season, seasonOptions, onSeasonChange, className }) {
+  return (
+    <div className={cn('space-y-2', className)}>
+      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Season</p>
+      <Select value={season} onValueChange={onSeasonChange} disabled={!seasonOptions.length}>
+        <SelectTrigger className="h-10 w-[160px] border-slate-300 bg-white text-sm font-semibold text-slate-900">
+          <SelectValue placeholder="Select season" />
+        </SelectTrigger>
+        <SelectContent>
+          {seasonOptions.map((seasonOption) => (
+            <SelectItem key={`season-${seasonOption}`} value={seasonOption}>
+              {seasonOption}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }
@@ -576,30 +793,35 @@ function PerformerList({ title, subtitle, items, favoriteTeam, direction }) {
   )
 }
 
-function FinalModelTableCard({ rows, favoriteTeam }) {
+function FinalModelTableCard({ rows, favoriteTeam, season }) {
   return (
     <Card className="border-slate-200 bg-white shadow-sm">
       <CardHeader className="pb-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Model Output</p>
-            <CardTitle className="text-2xl">Predicted Final Premier League Table</CardTitle>
+            <CardTitle className="text-2xl">Predicted Premier League Table</CardTitle>
             <CardDescription className="mt-2">
-              Softmax model projection derived from <code>src/data/prem_odds_predictions_2024_25.csv</code>. Form
+              Softmax model projection derived from <code>src/data/prem_odds_predictions_all.csv</code>. Form
               uses W = win, D = draw, and L = loss over the latest five predicted matches. Pts/W/D/L are an
               expectation-fit projection; xPts comes directly from match probabilities.
             </CardDescription>
           </div>
-          <Badge variant="outline" className="gap-1 border-amber-200 bg-amber-50 text-amber-700">
-            <Sparkles className="h-3.5 w-3.5" />
-            {rows.length} clubs
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
+              {season || 'Season n/a'}
+            </Badge>
+            <Badge variant="outline" className="gap-1 border-amber-200 bg-amber-50 text-amber-700">
+              <Sparkles className="h-3.5 w-3.5" />
+              {rows.length} clubs
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="pt-0">
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Run <code>python src/MLMODEL.py</code> to regenerate <code>src/data/prem_odds_predictions_2024_25.csv</code>.
+            Run <code>python src/MLMODEL.py</code> to regenerate <code>src/data/prem_odds_predictions_all.csv</code>.
           </p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -656,7 +878,7 @@ function FinalModelTableCard({ rows, favoriteTeam }) {
   )
 }
 
-function FavoriteTeamCard({ favoriteTeam, onFavoriteTeamChange, favoriteSnapshot }) {
+function FavoriteTeamCard({ favoriteTeam, onFavoriteTeamChange, favoriteSnapshot, teamOptions }) {
   return (
     <Card className="border-slate-200 bg-white shadow-sm">
       <CardHeader className="pb-4">
@@ -671,11 +893,11 @@ function FavoriteTeamCard({ favoriteTeam, onFavoriteTeamChange, favoriteSnapshot
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {teamList.map((team) => (
-                <SelectItem key={team.team} value={team.team}>
+              {teamOptions.map((team) => (
+                <SelectItem key={team} value={team}>
                   <div className="flex items-center gap-2">
-                    <ClubLogo team={team.team} />
-                    <span>{team.team}</span>
+                    <ClubLogo team={team} />
+                    <span>{team}</span>
                   </div>
                 </SelectItem>
               ))}
@@ -706,9 +928,22 @@ function FavoriteTeamCard({ favoriteTeam, onFavoriteTeamChange, favoriteSnapshot
   )
 }
 
-function OverviewPage({ topOver, topUnder, favoriteTeam, favoriteSnapshot, onFavoriteTeamChange }) {
+function OverviewPage({
+  season,
+  seasonOptions,
+  onSeasonChange,
+  topOver,
+  topUnder,
+  favoriteTeam,
+  favoriteSnapshot,
+  onFavoriteTeamChange,
+  teamOptions,
+}) {
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <SeasonSelector season={season} seasonOptions={seasonOptions} onSeasonChange={onSeasonChange} />
+      </div>
       <section className="grid items-start gap-6 lg:grid-cols-[1.35fr_0.9fr]">
         <div className="space-y-5">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Premier League Predictor</p>
@@ -740,6 +975,7 @@ function OverviewPage({ topOver, topUnder, favoriteTeam, favoriteSnapshot, onFav
           favoriteTeam={favoriteTeam}
           onFavoriteTeamChange={onFavoriteTeamChange}
           favoriteSnapshot={favoriteSnapshot}
+          teamOptions={teamOptions}
         />
       </section>
 
@@ -764,6 +1000,9 @@ function OverviewPage({ topOver, topUnder, favoriteTeam, favoriteSnapshot, onFav
 }
 
 function TablesPage({
+  season,
+  seasonOptions,
+  onSeasonChange,
   currentTable,
   predictedTable,
   favoriteTeam,
@@ -772,12 +1011,15 @@ function TablesPage({
 }) {
   return (
     <div className="space-y-4">
-      <section className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Standings</p>
-        <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Current vs Predicted Tables</h2>
-        <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
-          Compare live and projected positions by gameweek without crowding the rest of the dashboard.
-        </p>
+      <section className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Standings</p>
+          <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Current vs Predicted Tables</h2>
+          <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
+            Compare live and projected positions by gameweek without crowding the rest of the dashboard.
+          </p>
+        </div>
+        <SeasonSelector season={season} seasonOptions={seasonOptions} onSeasonChange={onSeasonChange} />
       </section>
       <section className="grid items-stretch gap-4 xl:grid-cols-2">
         <TableCard
@@ -798,6 +1040,490 @@ function TablesPage({
         />
       </section>
     </div>
+  )
+}
+
+function MatchInsightCard({ title, description, match }) {
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-1 pt-0">
+        {match ? (
+          <>
+            <p className="text-sm font-semibold text-slate-900">
+              {match.homeTeam} {formatScoreline(match.homeGoals, match.awayGoals)} {match.awayTeam}
+            </p>
+            <p className="text-xs text-muted-foreground">{match.matchDate}</p>
+            <p className="text-xs text-slate-700">
+              Model: {matchOutcomeLabelMap[match.modelPickCode]} ({formatPercent(match.modelConfidence)})
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">No matching fixtures available.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function MatchStatComparisonChart({ label, homeTeam, awayTeam, homeValue, awayValue }) {
+  const hasValues = Number.isFinite(homeValue) && Number.isFinite(awayValue)
+  const safeHomeValue = hasValues ? homeValue : 0
+  const safeAwayValue = hasValues ? awayValue : 0
+  const scale = Math.max(safeHomeValue, safeAwayValue, 1)
+  const homeWidth = `${(safeHomeValue / scale) * 100}%`
+  const awayWidth = `${(safeAwayValue / scale) * 100}%`
+
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+        <span>{label}</span>
+        <span>
+          {hasValues ? `${safeHomeValue} - ${safeAwayValue}` : 'N/A'}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px] text-slate-600">
+            <span>{homeTeam}</span>
+            <span className="tabular-nums">{safeHomeValue}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-sky-500" style={{ width: homeWidth }} />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px] text-slate-600">
+            <span>{awayTeam}</span>
+            <span className="tabular-nums">{safeAwayValue}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-rose-500" style={{ width: awayWidth }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProbabilityChart({ title, values }) {
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{title}</p>
+      {values.map((value) => (
+        <div key={`${title}-${value.label}`} className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-600">
+            <span>{value.label}</span>
+            <span className="tabular-nums">{formatPercent(value.amount)}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-indigo-500" style={{ width: `${value.amount * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MatchDetailsDrawer({ matches, activeIndex, onClose, onSelectIndex }) {
+  if (activeIndex < 0 || activeIndex >= matches.length) return null
+
+  const match = matches[activeIndex]
+  const hasPrevious = activeIndex > 0
+  const hasNext = activeIndex < matches.length - 1
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-900/45"
+        aria-label="Close details"
+        onClick={onClose}
+      />
+      <aside className="absolute right-0 top-0 h-full w-full max-w-2xl border-l border-slate-200 bg-slate-50 shadow-2xl">
+        <div className="flex h-full flex-col">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Match Details</p>
+              <p className="text-sm font-semibold text-slate-900">
+                {match.homeTeam} vs {match.awayTeam}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={() => hasPrevious && onSelectIndex(activeIndex - 1)}
+                disabled={!hasPrevious}
+                aria-label="Previous match"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={() => hasNext && onSelectIndex(activeIndex + 1)}
+                disabled={!hasNext}
+                aria-label="Next match"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700"
+                onClick={onClose}
+                aria-label="Close drawer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="drawer-scroll flex-1 overflow-y-auto p-4">
+            <div className="space-y-4">
+              <Card className="border-slate-200 bg-white shadow-sm">
+                <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Date</p>
+                    <p className="mt-1 font-semibold tabular-nums">{match.matchDate}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Score</p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums">
+                      {formatScoreline(match.homeGoals, match.awayGoals)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Actual Result</p>
+                    <Badge variant="outline" className={cn('mt-1 uppercase tracking-[0.12em]', matchOutcomeBadgeClass(match.fullTimeResult))}>
+                      {matchOutcomeLabelMap[match.fullTimeResult] ?? 'Unknown'}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Model Pick / Confidence</p>
+                    <p className="mt-1 text-sm font-semibold">
+                      {matchOutcomeLabelMap[match.modelPickCode] ?? 'Unknown'} ({formatPercent(match.modelConfidence)})
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ProbabilityChart
+                  title="Model Probabilities"
+                  values={[
+                    { label: 'Home Win', amount: match.modelHomeProb },
+                    { label: 'Draw', amount: match.modelDrawProb },
+                    { label: 'Away Win', amount: match.modelAwayProb },
+                  ]}
+                />
+                <ProbabilityChart
+                  title="Market Probabilities"
+                  values={[
+                    { label: 'Home Win', amount: match.marketHomeProb },
+                    { label: 'Draw', amount: match.marketDrawProb },
+                    { label: 'Away Win', amount: match.marketAwayProb },
+                  ]}
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MatchStatComparisonChart
+                  label="Shots"
+                  homeTeam={match.homeTeam}
+                  awayTeam={match.awayTeam}
+                  homeValue={match.homeShots}
+                  awayValue={match.awayShots}
+                />
+                <MatchStatComparisonChart
+                  label="Shots On Target"
+                  homeTeam={match.homeTeam}
+                  awayTeam={match.awayTeam}
+                  homeValue={match.homeShotsOnTarget}
+                  awayValue={match.awayShotsOnTarget}
+                />
+                <MatchStatComparisonChart
+                  label="Corners"
+                  homeTeam={match.homeTeam}
+                  awayTeam={match.awayTeam}
+                  homeValue={match.homeCorners}
+                  awayValue={match.awayCorners}
+                />
+                <MatchStatComparisonChart
+                  label="Yellow Cards"
+                  homeTeam={match.homeTeam}
+                  awayTeam={match.awayTeam}
+                  homeValue={match.homeYellowCards}
+                  awayValue={match.awayYellowCards}
+                />
+                <MatchStatComparisonChart
+                  label="Red Cards"
+                  homeTeam={match.homeTeam}
+                  awayTeam={match.awayTeam}
+                  homeValue={match.homeRedCards}
+                  awayValue={match.awayRedCards}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function MatchColumnsMenu({ columnVisibility, onToggleColumn, onResetColumns }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+    const handlePointerDown = (event) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      if (!target.closest('[data-columns-menu-root]')) {
+        setIsOpen(false)
+      }
+    }
+    window.addEventListener('pointerdown', handlePointerDown)
+    return () => window.removeEventListener('pointerdown', handlePointerDown)
+  }, [isOpen])
+
+  return (
+    <div className="relative" data-columns-menu-root>
+      <button
+        type="button"
+        className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:border-slate-400"
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <Columns3 className="h-4 w-4" />
+        Columns
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-xl">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Visible Columns</p>
+            <button
+              type="button"
+              className="text-xs font-semibold text-slate-600 underline-offset-2 hover:underline"
+              onClick={onResetColumns}
+            >
+              Reset
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-1.5">
+            {MATCH_COLUMN_DEFINITIONS.map((column) => (
+              <label
+                key={`match-column-${column.key}`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={columnVisibility[column.key] !== false}
+                  onChange={() => onToggleColumn(column.key)}
+                />
+                <span>{column.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MatchesPage({
+  season,
+  seasonOptions,
+  onSeasonChange,
+  matches,
+  insights,
+  columnVisibility,
+  onToggleColumn,
+  onResetColumns,
+}) {
+  const [activeMatchIndex, setActiveMatchIndex] = useState(-1)
+
+  useEffect(() => {
+    if (!matches.length) {
+      setActiveMatchIndex(-1)
+      return
+    }
+    if (activeMatchIndex >= matches.length) {
+      setActiveMatchIndex(matches.length - 1)
+    }
+  }, [matches, activeMatchIndex])
+
+  useEffect(() => {
+    if (activeMatchIndex < 0) return undefined
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setActiveMatchIndex(-1)
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [activeMatchIndex])
+
+  const isVisible = (columnKey) => columnVisibility[columnKey] !== false
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Matches & Results</p>
+          <h2 className="text-3xl font-semibold tracking-tight text-slate-900">All Fixtures, Scores, and Confidence</h2>
+          <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
+            Review every played fixture for the selected season with model confidence, probabilities, and key match stats.
+          </p>
+        </div>
+        <SeasonSelector season={season} seasonOptions={seasonOptions} onSeasonChange={onSeasonChange} />
+      </div>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MatchInsightCard
+          title="Highest Confidence"
+          description="Model's strongest pick"
+          match={insights.highestConfidence}
+        />
+        <MatchInsightCard
+          title="Lowest Confidence"
+          description="Closest-call fixture"
+          match={insights.lowestConfidence}
+        />
+        <MatchInsightCard
+          title="High-Confidence Miss"
+          description="Biggest confident miss"
+          match={insights.highestConfidenceMiss}
+        />
+        <MatchInsightCard
+          title="Biggest Winning Margin"
+          description="Largest scoreline gap"
+          match={insights.biggestGoalMargin}
+        />
+      </section>
+
+      <Card className="border-slate-200 bg-white shadow-sm">
+        <CardContent className="pt-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-sm text-slate-600">{matches.length} fixtures</p>
+              <p className="text-xs text-slate-500">Click any row to open the side detail panel.</p>
+            </div>
+            <MatchColumnsMenu
+              columnVisibility={columnVisibility}
+              onToggleColumn={onToggleColumn}
+              onResetColumns={onResetColumns}
+            />
+          </div>
+
+          <div className="matches-scroll-container overflow-x-auto overflow-y-hidden rounded-lg border border-slate-200">
+            <Table className="min-w-[980px]">
+              <TableHeader className="bg-slate-50">
+                <TableRow className="border-b-0 hover:bg-transparent">
+                  {isVisible('date') && <TableHead>Date</TableHead>}
+                  {isVisible('home') && <TableHead>Home</TableHead>}
+                  {isVisible('away') && <TableHead>Away</TableHead>}
+                  {isVisible('score') && <TableHead className="text-right">Score</TableHead>}
+                  {isVisible('result') && <TableHead>Result</TableHead>}
+                  {isVisible('modelPick') && <TableHead>Model Pick</TableHead>}
+                  {isVisible('confidence') && <TableHead>Confidence</TableHead>}
+                  {isVisible('prediction') && <TableHead>Prediction</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {matches.map((match, index) => (
+                  <TableRow
+                    key={match.id}
+                    className="cursor-pointer hover:bg-slate-50"
+                    onClick={() => setActiveMatchIndex(index)}
+                  >
+                    {isVisible('date') && <TableCell className="font-medium tabular-nums">{match.matchDate}</TableCell>}
+                    {isVisible('home') && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <ClubLogo team={match.homeTeam} />
+                          <span>{match.homeTeam}</span>
+                        </div>
+                      </TableCell>
+                    )}
+                    {isVisible('away') && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <ClubLogo team={match.awayTeam} />
+                          <span>{match.awayTeam}</span>
+                        </div>
+                      </TableCell>
+                    )}
+                    {isVisible('score') && (
+                      <TableCell className="text-right font-semibold tabular-nums">
+                        {formatScoreline(match.homeGoals, match.awayGoals)}
+                      </TableCell>
+                    )}
+                    {isVisible('result') && (
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={cn('uppercase tracking-[0.12em]', matchOutcomeBadgeClass(match.fullTimeResult))}
+                        >
+                          {matchOutcomeLabelMap[match.fullTimeResult] ?? 'Unknown'}
+                        </Badge>
+                      </TableCell>
+                    )}
+                    {isVisible('modelPick') && (
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={cn('uppercase tracking-[0.12em]', matchOutcomeBadgeClass(match.modelPickCode))}
+                        >
+                          {matchOutcomeLabelMap[match.modelPickCode] ?? 'Unknown'}
+                        </Badge>
+                      </TableCell>
+                    )}
+                    {isVisible('confidence') && (
+                      <TableCell>
+                        <span
+                          className={cn(
+                            'inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums',
+                            confidenceBadgeClass(match.modelConfidence)
+                          )}
+                        >
+                          {formatPercent(match.modelConfidence)}
+                        </span>
+                      </TableCell>
+                    )}
+                    {isVisible('prediction') && (
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'uppercase tracking-[0.12em]',
+                            match.predictionCorrect
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-rose-200 bg-rose-50 text-rose-700'
+                          )}
+                        >
+                          {match.predictionCorrect ? 'Correct' : 'Miss'}
+                        </Badge>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <MatchDetailsDrawer
+        matches={matches}
+        activeIndex={activeMatchIndex}
+        onClose={() => setActiveMatchIndex(-1)}
+        onSelectIndex={setActiveMatchIndex}
+      />
+    </section>
   )
 }
 
@@ -834,30 +1560,59 @@ function MethodologyPage() {
   )
 }
 
-function ModelOutputPage({ favoriteTeam, modelOutputTable }) {
+function ModelOutputPage({ favoriteTeam, modelOutputTable, season, seasonOptions, onSeasonChange }) {
   return (
     <section className="space-y-4">
-      <div className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Model Output</p>
-        <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Predicted Final Table</h2>
-        <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
-          View the complete softmax projection in a dedicated page without the rest of the dashboard content.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Model Output</p>
+          <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Predicted Season Table</h2>
+          <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
+            Default view is the latest season available. Switch season to compare model projections year by year.
+          </p>
+        </div>
+        <SeasonSelector season={season} seasonOptions={seasonOptions} onSeasonChange={onSeasonChange} />
       </div>
-      <FinalModelTableCard rows={modelOutputTable} favoriteTeam={favoriteTeam} />
+      <FinalModelTableCard rows={modelOutputTable} favoriteTeam={favoriteTeam} season={season} />
     </section>
   )
 }
 
-function ClubPage({ clubs, selectedClub, onSelectedClubChange, clubFixtures, clubSummary }) {
+function ClubPage({
+  season,
+  seasonOptions,
+  onSeasonChange,
+  clubs,
+  selectedClub,
+  onSelectedClubChange,
+  clubFixtures,
+  clubSummary,
+}) {
+  const [activeMatchIndex, setActiveMatchIndex] = useState(-1)
+
+  useEffect(() => {
+    if (!clubFixtures.length) {
+      setActiveMatchIndex(-1)
+      return
+    }
+    if (activeMatchIndex >= clubFixtures.length) {
+      setActiveMatchIndex(clubFixtures.length - 1)
+    }
+  }, [clubFixtures, activeMatchIndex])
+
   return (
     <section className="space-y-4">
-      <div className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Club View</p>
-        <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Fixtures, Results, and Model Confidence</h2>
-        <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
-          Select any club to view all fixtures, match outcomes, and the model confidence on each prediction.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Club View</p>
+          <h2 className="text-3xl font-semibold tracking-tight text-slate-900">
+            Fixtures, Results, and Model Confidence
+          </h2>
+          <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
+            Select any club to view all fixtures, match outcomes, and model confidence for the chosen season.
+          </p>
+        </div>
+        <SeasonSelector season={season} seasonOptions={seasonOptions} onSeasonChange={onSeasonChange} />
       </div>
 
       <Card className="border-slate-200 bg-white shadow-sm">
@@ -866,10 +1621,10 @@ function ClubPage({ clubs, selectedClub, onSelectedClubChange, clubFixtures, clu
             <CardTitle className="text-lg">Club Breakdown</CardTitle>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-            <p className="mb-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">Choose Club</p>
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Choose Club</p>
             <Select value={selectedClub} onValueChange={onSelectedClubChange}>
-              <SelectTrigger className="h-16 w-full border-2 border-slate-300 bg-white px-5 text-lg font-semibold text-slate-900 shadow-sm sm:h-20 sm:text-2xl">
+              <SelectTrigger className="h-16 w-full border border-slate-300 bg-white px-5 text-lg font-semibold text-slate-900 sm:h-20 sm:text-2xl">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-[420px]">
@@ -963,10 +1718,13 @@ function ClubPage({ clubs, selectedClub, onSelectedClubChange, clubFixtures, clu
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">No fixtures available for this club in the current dataset.</p>
+            <p className="text-sm text-muted-foreground">No fixtures available for this club in {season || 'this season'}.</p>
           )}
 
           <div className="overflow-x-auto overflow-y-hidden rounded-lg border border-slate-200">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-2">
+              <p className="text-xs text-slate-500">Click any row to open the side detail panel.</p>
+            </div>
             <Table className="min-w-[960px]">
               <TableHeader className="bg-slate-50">
                 <TableRow className="border-b-0 hover:bg-transparent">
@@ -983,8 +1741,12 @@ function ClubPage({ clubs, selectedClub, onSelectedClubChange, clubFixtures, clu
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {clubFixtures.map((fixture) => (
-                  <TableRow key={fixture.id} className="h-14">
+                {clubFixtures.map((fixture, index) => (
+                  <TableRow
+                    key={fixture.id}
+                    className="h-14 cursor-pointer hover:bg-slate-50"
+                    onClick={() => setActiveMatchIndex(index)}
+                  >
                     <TableCell className="font-medium tabular-nums">{fixture.matchDate}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -1036,6 +1798,13 @@ function ClubPage({ clubs, selectedClub, onSelectedClubChange, clubFixtures, clu
           </div>
         </CardContent>
       </Card>
+
+      <MatchDetailsDrawer
+        matches={clubFixtures}
+        activeIndex={activeMatchIndex}
+        onClose={() => setActiveMatchIndex(-1)}
+        onSelectIndex={setActiveMatchIndex}
+      />
     </section>
   )
 }
@@ -1075,28 +1844,127 @@ function AppNavigation() {
 }
 
 export default function App() {
-  const [selectedGameweek, setSelectedGameweek] = useState(24)
+  const [selectedGameweek, setSelectedGameweek] = useState(38)
   const [favoriteTeam, setFavoriteTeam] = useState(teamList[0].team)
-  const [selectedClub, setSelectedClub] = useState(normalizeTeamName(teamList[0].team))
+  const [selectedClub, setSelectedClub] = useState('')
+  const [selectedSeason, setSelectedSeason] = useState('')
+  const [matchColumnVisibility, setMatchColumnVisibility] = useState(() => readCachedMatchColumnVisibility())
 
   const predictionFixtures = useMemo(() => parsePredictionFixtures(premOddsPredictionsRaw), [])
-  const modelOutputTable = useMemo(() => buildModelOutputTable(predictionFixtures), [predictionFixtures])
+
+  const seasonOptions = useMemo(() => {
+    const uniqueSeasons = [...new Set(predictionFixtures.map((fixture) => fixture.season).filter(Boolean))]
+    return uniqueSeasons.sort((a, b) => seasonStartFromLabel(b) - seasonStartFromLabel(a) || b.localeCompare(a))
+  }, [predictionFixtures])
+
+  useEffect(() => {
+    if (!seasonOptions.length) return
+    if (!selectedSeason || !seasonOptions.includes(selectedSeason)) {
+      setSelectedSeason(seasonOptions[0])
+    }
+  }, [seasonOptions, selectedSeason])
+
+  const activeSeason = seasonOptions.includes(selectedSeason) ? selectedSeason : (seasonOptions[0] ?? '')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(MATCH_COLUMN_STORAGE_KEY, JSON.stringify(matchColumnVisibility))
+  }, [matchColumnVisibility])
+
+  const toggleMatchColumn = (columnKey) => {
+    setMatchColumnVisibility((current) => ({
+      ...current,
+      [columnKey]: !(current[columnKey] !== false),
+    }))
+  }
+
+  const resetMatchColumns = () => {
+    setMatchColumnVisibility(defaultMatchColumnVisibility())
+  }
+
+  const seasonFixtures = useMemo(
+    () => predictionFixtures.filter((fixture) => fixture.season === activeSeason),
+    [predictionFixtures, activeSeason]
+  )
+
+  useEffect(() => {
+    if (!activeSeason) return
+    setSelectedGameweek(getSeasonCurrentGameweek(seasonFixtures))
+  }, [activeSeason, seasonFixtures])
+
+  const modelOutputTable = useMemo(() => buildModelOutputTable(seasonFixtures), [seasonFixtures])
+
+  const seasonMatches = useMemo(
+    () =>
+      sortFixturesChronologically(seasonFixtures).map((match, index) => {
+        const modelPickCode = deriveModelPickCode(match)
+        const modelConfidence =
+          modelPickCode === 'H'
+            ? match.modelHomeProb
+            : modelPickCode === 'D'
+              ? match.modelDrawProb
+              : match.modelAwayProb
+        const goalMargin =
+          Number.isFinite(match.homeGoals) && Number.isFinite(match.awayGoals)
+            ? Math.abs(match.homeGoals - match.awayGoals)
+            : null
+
+        return {
+          ...match,
+          id: `${match.id}-${index}`,
+          modelPickCode,
+          modelConfidence,
+          predictionCorrect: modelPickCode === match.fullTimeResult,
+          goalMargin,
+        }
+      }),
+    [seasonFixtures]
+  )
+
+  const matchInsights = useMemo(() => {
+    if (!seasonMatches.length) {
+      return {
+        highestConfidence: null,
+        lowestConfidence: null,
+        highestConfidenceMiss: null,
+        biggestGoalMargin: null,
+      }
+    }
+
+    const highestConfidence = [...seasonMatches].sort((a, b) => b.modelConfidence - a.modelConfidence)[0]
+    const lowestConfidence = [...seasonMatches].sort((a, b) => a.modelConfidence - b.modelConfidence)[0]
+    const highestConfidenceMiss =
+      [...seasonMatches]
+        .filter((match) => !match.predictionCorrect)
+        .sort((a, b) => b.modelConfidence - a.modelConfidence)[0] ?? null
+    const biggestGoalMargin =
+      [...seasonMatches]
+        .filter((match) => Number.isFinite(match.goalMargin))
+        .sort((a, b) => b.goalMargin - a.goalMargin)[0] ?? null
+
+    return {
+      highestConfidence,
+      lowestConfidence,
+      highestConfidenceMiss,
+      biggestGoalMargin,
+    }
+  }, [seasonMatches])
 
   const availableClubs = useMemo(() => {
     const clubs = new Set()
-    predictionFixtures.forEach((fixture) => {
+    seasonFixtures.forEach((fixture) => {
       clubs.add(fixture.homeTeam)
       clubs.add(fixture.awayTeam)
     })
     return [...clubs].sort((a, b) => a.localeCompare(b))
-  }, [predictionFixtures])
+  }, [seasonFixtures])
 
   const activeClub = availableClubs.includes(selectedClub) ? selectedClub : (availableClubs[0] ?? '')
 
   const clubFixtures = useMemo(() => {
     if (!activeClub) return []
 
-    return predictionFixtures
+    return seasonFixtures
       .filter((match) => match.homeTeam === activeClub || match.awayTeam === activeClub)
       .map((match, index) => {
         const isHome = match.homeTeam === activeClub
@@ -1111,21 +1979,23 @@ export default function App() {
         const modelOutcome = outcomeForClub(modelPickCode, isHome)
 
         return {
+          ...match,
           id: `${match.id}-${index}`,
           matchDate: match.matchDate,
           opponent: isHome ? match.awayTeam : match.homeTeam,
           venue: isHome ? 'Home' : 'Away',
+          modelPickCode,
           actualOutcome,
           modelOutcome,
           modelConfidence,
           winProbability: isHome ? match.modelHomeProb : match.modelAwayProb,
           drawProbability: match.modelDrawProb,
           lossProbability: isHome ? match.modelAwayProb : match.modelHomeProb,
-          predictionCorrect: actualOutcome === modelOutcome,
+          predictionCorrect: modelPickCode === match.fullTimeResult,
         }
       })
       .sort((a, b) => a.matchDate.localeCompare(b.matchDate))
-  }, [activeClub, predictionFixtures])
+  }, [activeClub, seasonFixtures])
 
   const clubSummary = useMemo(() => {
     if (!clubFixtures.length) return null
@@ -1160,23 +2030,60 @@ export default function App() {
     }
   }, [clubFixtures])
 
-  const { currentTable, predictedTable, topOver, topUnder, favoriteSnapshot } = useMemo(() => {
-    const currentRows = buildStandings(selectedGameweek)
-    const predictedRows = buildStandings(selectedGameweek)
+  const seasonTeams = useMemo(() => [...availableClubs], [availableClubs])
 
-    const currentTable = [...currentRows]
-      .sort(sortByNumber('points'))
+  useEffect(() => {
+    if (!seasonTeams.length) return
+    const normalizedFavoriteTeam = normalizeTeamName(favoriteTeam)
+    if (!seasonTeams.includes(normalizedFavoriteTeam)) {
+      setFavoriteTeam(seasonTeams[0])
+    }
+  }, [seasonTeams, favoriteTeam])
+
+  const fixturesThroughGameweek = useMemo(
+    () => filterFixturesByGameweek(seasonFixtures, selectedGameweek),
+    [seasonFixtures, selectedGameweek]
+  )
+
+  const { currentTable, predictedTable, topOver, topUnder, favoriteSnapshot } = useMemo(() => {
+    const actualRows = buildActualTable(fixturesThroughGameweek, seasonTeams)
+    const predictedRows = buildModelOutputTable(fixturesThroughGameweek)
+    const actualByTeam = new Map(actualRows.map((row) => [normalizeTeamName(row.team), row]))
+    const predictedByTeam = new Map(
+      predictedRows.map((row) => [normalizeTeamName(row.Team), row])
+    )
+
+    const mergedRows = seasonTeams.map((team) => {
+      const actualRow = actualByTeam.get(team) ?? {
+        team,
+        played: 0,
+        points: 0,
+        form: emptyForm(),
+      }
+      const predictedRow = predictedByTeam.get(team)
+      return {
+        team,
+        played: actualRow.played,
+        points: actualRow.points,
+        predictedPoints: predictedRow?.Points ?? 0,
+        form: actualRow.form,
+        predictedForm: predictedRow?.Form ?? emptyForm(),
+      }
+    })
+
+    const currentTable = [...mergedRows]
+      .sort((a, b) => b.points - a.points || b.predictedPoints - a.predictedPoints || a.team.localeCompare(b.team))
       .map((row, index) => ({ ...row, position: index + 1 }))
 
-    const predictedTable = [...predictedRows]
-      .sort(sortByNumber('predictedPoints'))
+    const predictedTable = [...mergedRows]
+      .sort((a, b) => b.predictedPoints - a.predictedPoints || b.points - a.points || a.team.localeCompare(b.team))
       .map((row, index) => ({
         ...row,
         position: index + 1,
         delta: row.predictedPoints - row.points,
       }))
 
-    const deltas = currentRows
+    const deltas = mergedRows
       .map((row) => ({
         team: row.team,
         points: row.points,
@@ -1185,8 +2092,9 @@ export default function App() {
       }))
       .sort((a, b) => b.delta - a.delta)
 
-    const favoriteCurrent = currentRows.find((row) => row.team === favoriteTeam)
-    const favoritePredicted = predictedRows.find((row) => row.team === favoriteTeam)
+    const normalizedFavoriteTeam = normalizeTeamName(favoriteTeam)
+    const favoriteCurrent = mergedRows.find((row) => normalizeTeamName(row.team) === normalizedFavoriteTeam)
+    const favoritePredicted = mergedRows.find((row) => normalizeTeamName(row.team) === normalizedFavoriteTeam)
     const favoriteSnapshot =
       favoriteCurrent && favoritePredicted
         ? {
@@ -1203,7 +2111,7 @@ export default function App() {
       topUnder: [...deltas].reverse().slice(0, 3),
       favoriteSnapshot,
     }
-  }, [favoriteTeam, selectedGameweek])
+  }, [favoriteTeam, fixturesThroughGameweek, seasonTeams])
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
@@ -1214,11 +2122,15 @@ export default function App() {
             path="/"
             element={
               <OverviewPage
+                season={activeSeason}
+                seasonOptions={seasonOptions}
+                onSeasonChange={setSelectedSeason}
                 topOver={topOver}
                 topUnder={topUnder}
                 favoriteTeam={favoriteTeam}
                 favoriteSnapshot={favoriteSnapshot}
                 onFavoriteTeamChange={setFavoriteTeam}
+                teamOptions={seasonTeams}
               />
             }
           />
@@ -1226,6 +2138,9 @@ export default function App() {
             path="/tables"
             element={
               <TablesPage
+                season={activeSeason}
+                seasonOptions={seasonOptions}
+                onSeasonChange={setSelectedSeason}
                 currentTable={currentTable}
                 predictedTable={predictedTable}
                 favoriteTeam={favoriteTeam}
@@ -1235,9 +2150,27 @@ export default function App() {
             }
           />
           <Route
+            path="/matches"
+            element={
+              <MatchesPage
+                season={activeSeason}
+                seasonOptions={seasonOptions}
+                onSeasonChange={setSelectedSeason}
+                matches={seasonMatches}
+                insights={matchInsights}
+                columnVisibility={matchColumnVisibility}
+                onToggleColumn={toggleMatchColumn}
+                onResetColumns={resetMatchColumns}
+              />
+            }
+          />
+          <Route
             path="/club"
             element={
               <ClubPage
+                season={activeSeason}
+                seasonOptions={seasonOptions}
+                onSeasonChange={setSelectedSeason}
                 clubs={availableClubs}
                 selectedClub={activeClub}
                 onSelectedClubChange={setSelectedClub}
@@ -1249,7 +2182,15 @@ export default function App() {
           <Route path="/methodology" element={<MethodologyPage />} />
           <Route
             path="/model-output"
-            element={<ModelOutputPage favoriteTeam={favoriteTeam} modelOutputTable={modelOutputTable} />}
+            element={
+              <ModelOutputPage
+                favoriteTeam={favoriteTeam}
+                modelOutputTable={modelOutputTable}
+                season={activeSeason}
+                seasonOptions={seasonOptions}
+                onSeasonChange={setSelectedSeason}
+              />
+            }
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
