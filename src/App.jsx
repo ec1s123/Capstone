@@ -1672,7 +1672,7 @@ function ClubPage({
                 </div>
               </div>
 
-              <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+              <div>
                 <div className="space-y-1">
                   <p className="text-xs uppercase tracking-[0.16em] text-indigo-700">Actual vs Model Expectation</p>
                   <p className="text-sm text-indigo-900/90">Delta is actual minus expected from model probabilities.</p>
