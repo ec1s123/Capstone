@@ -18,8 +18,8 @@ export const outcomeLabelMap = {
 }
 
 export function formatMatchOutcome(resultCode, match) {
-  if (resultCode === 'H') return `${match.homeTeam} Win`
-  if (resultCode === 'A') return `${match.awayTeam} Win`
+  if (resultCode === 'H') return `${match.homeTeam} Win (H)`
+  if (resultCode === 'A') return `${match.awayTeam} Win (A)`
   if (resultCode === 'D') return 'Draw'
   return 'Unknown'
 }
