@@ -25,6 +25,7 @@
   --radius: 0.9rem;
   --hairline-color: rgba(148, 163, 184, 0.32);
   --hairline-color-strong: rgba(100, 116, 139, 0.42);
+  --hairline-color-soft: rgba(148, 163, 184, 0.18);
 }
 
 * {
@@ -66,20 +67,126 @@ h3 {
 
 .hairline-top {
   border-top: 0;
-  box-shadow: inset 0 0.5px 0 0 var(--hairline-color);
+  box-shadow: none;
 }
 
 .hairline-bottom {
   border-bottom: 0;
-  box-shadow: inset 0 -0.5px 0 0 var(--hairline-color);
+  box-shadow: none;
 }
 
 .hairline-y {
   border-top: 0;
   border-bottom: 0;
-  box-shadow:
-    inset 0 0.5px 0 0 var(--hairline-color),
-    inset 0 -0.5px 0 0 var(--hairline-color);
+  position: relative;
+  box-shadow: none;
+}
+
+.hairline-y::before,
+.hairline-y::after,
+.hairline-inset-y::before,
+.hairline-inset-y::after {
+  display: none;
+}
+
+.hairline-inset-y {
+  position: relative;
+}
+
+.hairline-grid {
+  border-top: 0;
+  border-bottom: 0;
+}
+
+.hairline-grid > * {
+  position: relative;
+}
+
+.hairline-list > * {
+  position: relative;
+}
+
+.hairline-list > * + *::before {
+  content: "";
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  top: 0;
+  height: 0.5px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(148, 163, 184, 0.12) 18%,
+    rgba(148, 163, 184, 0.22) 50%,
+    rgba(148, 163, 184, 0.12) 82%,
+    transparent 100%
+  );
+}
+
+@media (min-width: 768px) {
+  .hairline-grid > *::before {
+    content: "";
+    position: absolute;
+    display: block;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(148, 163, 184, 0.1) 18%,
+      rgba(148, 163, 184, 0.24) 50%,
+      rgba(148, 163, 184, 0.1) 82%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  .hairline-grid > *::before {
+    left: 0;
+    right: auto;
+    top: 1.5rem;
+    bottom: 1.5rem;
+    width: 0.5px;
+    height: auto;
+  }
+
+  .hairline-grid > *:first-child::before {
+    display: none;
+  }
+
+  .hairline-grid.md-cols-2 > *::before {
+    display: block;
+  }
+
+  .hairline-grid.md-cols-2 > *:nth-child(2n + 1)::before {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hairline-grid.lg-cols-3 > *::before {
+    display: block;
+  }
+
+  .hairline-grid.lg-cols-3 > *:nth-child(3n + 1)::before {
+    display: none;
+  }
+}
+
+@media (min-width: 1280px) {
+  .hairline-grid.xl-cols-4 > *::before {
+    display: block;
+  }
+
+  .hairline-grid.xl-cols-4 > *:nth-child(4n + 1)::before {
+    display: none;
+  }
+
+  .hairline-grid.xl-cols-6 > *::before {
+    display: block;
+  }
+
+  .hairline-grid.xl-cols-6 > *:nth-child(6n + 1)::before {
+    display: none;
+  }
 }
 
 .border,
@@ -93,7 +200,25 @@ h3 {
 }
 
 .divide-y > :not([hidden]) ~ :not([hidden]) {
-  border-top-width: 0.5px;
+  border-top-width: 0;
+  position: relative;
+}
+
+.divide-y > :not([hidden]) ~ :not([hidden])::before {
+  content: "";
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  top: 0;
+  height: 0.5px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(148, 163, 184, 0.1) 18%,
+    rgba(148, 163, 184, 0.2) 50%,
+    rgba(148, 163, 184, 0.1) 82%,
+    transparent 100%
+  );
 }
 
 .divide-x > :not([hidden]) ~ :not([hidden]) {
@@ -103,12 +228,43 @@ h3 {
 .rounded-md.border,
 .rounded-lg.border,
 .rounded-xl.border {
-  border-color: var(--hairline-color);
+  border-left-color: transparent;
+  border-right-color: transparent;
+  border-top-color: var(--hairline-color);
+  border-bottom-color: var(--hairline-color);
 }
 
 .rounded-md.border:hover,
 .rounded-lg.border:hover,
 .rounded-xl.border:hover {
+  border-left-color: transparent;
+  border-right-color: transparent;
+  border-top-color: var(--hairline-color-strong);
+  border-bottom-color: var(--hairline-color-strong);
+}
+
+.rounded-md.border:not(.rounded-full),
+.rounded-lg.border:not(.rounded-full),
+.rounded-xl.border:not(.rounded-full) {
+  border-radius: 0.375rem;
+}
+
+.shadow-sm {
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.025);
+}
+
+.shadow-xl,
+.shadow-2xl {
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+}
+
+button.rounded-md.border,
+[role="combobox"].rounded-md {
+  border-color: var(--hairline-color);
+}
+
+button.rounded-md.border:hover,
+[role="combobox"].rounded-md:hover {
   border-color: var(--hairline-color-strong);
 }
 

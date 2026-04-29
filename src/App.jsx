@@ -33,6 +33,7 @@ import {
 } from './components/ui/table'
 import { teamList } from './data/placeholder'
 import eplFinalRaw from './data/epl_final.csv?raw'
+import premOddsMetrics from './data/prem_odds_metrics.json'
 import premOddsPredictionsRaw from './data/prem_odds_predictions_all.csv?raw'
 import { cn } from './lib/utils'
 
@@ -85,6 +86,48 @@ const methodology = [
     title: 'Model-Driven Probabilities',
     description: 'Structured model outputs turn raw football data into clearer, more actionable prediction signals.',
     icon: BrainCircuit,
+  },
+]
+
+const methodologyPipeline = [
+  {
+    step: '01',
+    title: 'Load Historical Fixtures',
+    description: 'CSV files are normalised into one fixture set with consistent teams, dates, odds, results, and seasons.',
+  },
+  {
+    step: '02',
+    title: 'Build Pre-Match Features',
+    description: 'The model only sees team identity, date context, and 1X2 market odds that would be known before kick-off.',
+  },
+  {
+    step: '03',
+    title: 'Backtest Latest Season',
+    description: 'Older seasons train the model; the latest available season is held out to test accuracy and probability quality.',
+  },
+  {
+    step: '04',
+    title: 'Publish Probabilities',
+    description: 'The production model is refit on every played fixture and outputs home, draw, and away probabilities.',
+  },
+]
+
+const methodologyFeatureGroups = [
+  {
+    title: 'Team Identity',
+    description: 'Home and away teams are encoded separately so the model can learn long-run club strength and venue effects.',
+  },
+  {
+    title: 'Calendar Context',
+    description: 'Month and day-of-week signals let the model capture seasonal scheduling patterns without using match outcomes.',
+  },
+  {
+    title: 'Market Odds',
+    description: 'Bet365 home, draw, and away odds are transformed into probability and log-odds features for pre-match context.',
+  },
+  {
+    title: 'Excluded Match Stats',
+    description: 'Goals, shots, cards, corners, fouls, and half-time scores are kept out of training to avoid target leakage.',
   },
 ]
 
@@ -670,7 +713,12 @@ function buildActualTable(fixtures, allTeams) {
       tableByTeam.set(team, {
         team,
         played: 0,
+        won: 0,
+        drawn: 0,
+        lost: 0,
         points: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
         formResults: [],
       })
     }
@@ -687,26 +735,57 @@ function buildActualTable(fixtures, allTeams) {
 
     homeRow.played += 1
     awayRow.played += 1
+    homeRow.goalsFor += safeChartValue(fixture.homeGoals)
+    homeRow.goalsAgainst += safeChartValue(fixture.awayGoals)
+    awayRow.goalsFor += safeChartValue(fixture.awayGoals)
+    awayRow.goalsAgainst += safeChartValue(fixture.homeGoals)
 
     const homeOutcome = outcomeForClub(fixture.fullTimeResult, true)
     const awayOutcome = outcomeForClub(fixture.fullTimeResult, false)
     homeRow.formResults.push(homeOutcome)
     awayRow.formResults.push(awayOutcome)
 
-    if (homeOutcome === 'W') homeRow.points += 3
-    if (homeOutcome === 'D') homeRow.points += 1
-    if (awayOutcome === 'W') awayRow.points += 3
-    if (awayOutcome === 'D') awayRow.points += 1
+    if (homeOutcome === 'W') {
+      homeRow.won += 1
+      homeRow.points += 3
+    }
+    if (homeOutcome === 'D') {
+      homeRow.drawn += 1
+      homeRow.points += 1
+    }
+    if (homeOutcome === 'L') homeRow.lost += 1
+
+    if (awayOutcome === 'W') {
+      awayRow.won += 1
+      awayRow.points += 3
+    }
+    if (awayOutcome === 'D') {
+      awayRow.drawn += 1
+      awayRow.points += 1
+    }
+    if (awayOutcome === 'L') awayRow.lost += 1
   })
 
   return [...tableByTeam.values()]
     .map((row) => ({
       team: row.team,
       played: row.played,
+      won: row.won,
+      drawn: row.drawn,
+      lost: row.lost,
       points: row.points,
+      goalsFor: row.goalsFor,
+      goalsAgainst: row.goalsAgainst,
+      goalDifference: row.goalsFor - row.goalsAgainst,
       form: normalizeRecentForm(row.formResults),
     }))
-    .sort((a, b) => b.points - a.points || a.team.localeCompare(b.team))
+    .sort(
+      (a, b) =>
+        b.points - a.points ||
+        b.goalDifference - a.goalDifference ||
+        b.goalsFor - a.goalsFor ||
+        a.team.localeCompare(b.team)
+    )
 }
 
 function buildModelOutputTable(fixtures) {
@@ -725,6 +804,8 @@ function buildModelOutputTable(fixtures) {
         expectedWins: 0,
         expectedDraws: 0,
         expectedLosses: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
         formResults: [],
       })
     }
@@ -739,6 +820,10 @@ function buildModelOutputTable(fixtures) {
 
     homeRow.Played += 1
     awayRow.Played += 1
+    homeRow.goalsFor += safeChartValue(fixture.homeGoals)
+    homeRow.goalsAgainst += safeChartValue(fixture.awayGoals)
+    awayRow.goalsFor += safeChartValue(fixture.awayGoals)
+    awayRow.goalsAgainst += safeChartValue(fixture.homeGoals)
 
     homeRow.expectedWins += fixture.modelHomeProb
     homeRow.expectedDraws += fixture.modelDrawProb
@@ -768,6 +853,12 @@ function buildModelOutputTable(fixtures) {
         Lost: projected.lost,
         Points: projected.points,
         ExpectedPoints: Number(row.ExpectedPoints.toFixed(2)),
+        ExpectedWins: Number(row.expectedWins.toFixed(2)),
+        ExpectedDraws: Number(row.expectedDraws.toFixed(2)),
+        ExpectedLosses: Number(row.expectedLosses.toFixed(2)),
+        GoalsFor: row.goalsFor,
+        GoalsAgainst: row.goalsAgainst,
+        GoalDifference: row.goalsFor - row.goalsAgainst,
         Form: form,
       }
     })
@@ -881,11 +972,15 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
   const tone = toneMap[mode]
   const isCurrentMode = mode === 'current'
   const showDeltaColumn = mode === 'predicted'
-  const teamColumnClass = showDeltaColumn ? 'w-[180px]' : 'w-[220px]'
-  const formColumnClass = showDeltaColumn ? 'w-[132px]' : 'w-[148px]'
+  const teamColumnClass = showDeltaColumn ? 'w-[170px]' : 'w-[190px]'
+  const formColumnClass = 'w-[132px]'
+  const leader = rows[0] ?? null
+  const favoriteRow = rows.find((row) => normalizeTeamName(row.team) === normalizeTeamName(favoriteTeam)) ?? null
+  const maxPoints = Math.max(...rows.map((row) => isCurrentMode ? row.points : row.predictedPoints), 1)
+  const valueLabel = isCurrentMode ? 'points' : 'projected points'
 
   return (
-    <Card className={cn('h-full overflow-hidden border shadow-sm', tone.card)}>
+    <Card className={cn('h-full overflow-hidden bg-white/85 shadow-sm', tone.card)}>
       <CardHeader className="px-4 pb-4 pt-4 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -915,16 +1010,59 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
             </Badge>
           </div>
         </div>
+        <div className="hairline-grid md-cols-2 mt-4 grid gap-0 overflow-hidden rounded-lg bg-white/70 md:grid-cols-2">
+          <div className="p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Leader</p>
+            {leader ? (
+              <div className="mt-2 flex min-w-0 items-center gap-2">
+                <ClubLogo team={leader.team} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{leader.team}</p>
+                  <p className="text-xs tabular-nums text-slate-500">
+                    {isCurrentMode ? leader.points : leader.predictedPoints} {valueLabel}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">No leader yet</p>
+            )}
+          </div>
+          <div className="p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Tracked Club</p>
+            {favoriteRow ? (
+              <div className="mt-2 flex min-w-0 items-center gap-2">
+                <ClubLogo team={favoriteRow.team} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">
+                    {favoriteRow.position}. {favoriteRow.team}
+                  </p>
+                  <p className="text-xs tabular-nums text-slate-500">
+                    {isCurrentMode ? favoriteRow.points : favoriteRow.predictedPoints} {valueLabel}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">Choose a club on Overview</p>
+            )}
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="px-4 pb-4 pt-0 sm:px-5">
-        <div className="overflow-x-auto overflow-y-hidden rounded-lg border border-slate-200">
-          <Table className="table-fixed min-w-full">
-            <TableHeader className={tone.header}>
+        <div className="matches-scroll-container overflow-x-auto overflow-y-hidden rounded-lg bg-white/70">
+          <Table className={cn('table-fixed', showDeltaColumn ? 'min-w-[1120px]' : 'min-w-[980px]')}>
+            <TableHeader className="bg-slate-50/70">
               <TableRow className="border-b-0 hover:bg-transparent">
                 <TableHead className="w-[52px] whitespace-nowrap">Pos</TableHead>
                 <TableHead className={cn(teamColumnClass, 'whitespace-nowrap')}>Team</TableHead>
                 <TableHead className="w-[48px] whitespace-nowrap text-right">P</TableHead>
+                <TableHead className="w-[44px] whitespace-nowrap text-right">W</TableHead>
+                <TableHead className="w-[44px] whitespace-nowrap text-right">D</TableHead>
+                <TableHead className="w-[44px] whitespace-nowrap text-right">L</TableHead>
+                <TableHead className="w-[54px] whitespace-nowrap text-right">GF</TableHead>
+                <TableHead className="w-[54px] whitespace-nowrap text-right">GA</TableHead>
+                <TableHead className="w-[54px] whitespace-nowrap text-right">GD</TableHead>
                 <TableHead className="w-[62px] whitespace-nowrap text-right">{isCurrentMode ? 'Pts' : 'Pred'}</TableHead>
+                {showDeltaColumn && <TableHead className="w-[68px] whitespace-nowrap text-right">xPts</TableHead>}
                 {showDeltaColumn && <TableHead className="w-[88px] whitespace-nowrap text-right">+/- vs Real</TableHead>}
                 <TableHead className={cn(formColumnClass, 'whitespace-nowrap')}>Form (Last 5)</TableHead>
               </TableRow>
@@ -932,19 +1070,45 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
             <TableBody>
               {rows.map((row) => {
                 const isFavorite = row.team === favoriteTeam
+                const rowValue = isCurrentMode ? row.points : row.predictedPoints
                 return (
                   <TableRow key={`${mode}-${row.team}`} className={cn('h-14', isFavorite && tone.favorite)}>
-                    <TableCell className={cn('w-14 font-semibold', tone.pos)}>{row.position}</TableCell>
+                    <TableCell className={cn('w-14 font-semibold', tone.pos)}>
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-xs">
+                        {row.position}
+                      </span>
+                    </TableCell>
                     <TableCell className={cn(teamColumnClass, 'font-medium')}>
-                      <div className="flex items-center gap-2">
-                        <ClubLogo team={row.team} />
-                        <span className="whitespace-nowrap">{row.team}</span>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <ClubLogo team={row.team} />
+                          <span className="whitespace-nowrap">{row.team}</span>
+                        </div>
+                        <div className="h-1 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className={cn('h-full rounded-full', isCurrentMode ? 'bg-sky-500' : 'bg-emerald-500')}
+                            style={{ width: barPercent(rowValue, maxPoints) }}
+                          />
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell className="w-[48px] text-right tabular-nums">{row.played}</TableCell>
-                    <TableCell className="w-[62px] text-right font-semibold tabular-nums">
-                      {isCurrentMode ? row.points : row.predictedPoints}
+                    <TableCell className="w-[44px] text-right tabular-nums">{row.won}</TableCell>
+                    <TableCell className="w-[44px] text-right tabular-nums">{row.drawn}</TableCell>
+                    <TableCell className="w-[44px] text-right tabular-nums">{row.lost}</TableCell>
+                    <TableCell className="w-[54px] text-right tabular-nums">{row.goalsFor}</TableCell>
+                    <TableCell className="w-[54px] text-right tabular-nums">{row.goalsAgainst}</TableCell>
+                    <TableCell className={cn('w-[54px] text-right font-semibold tabular-nums', comparisonDeltaClass(row.goalDifference))}>
+                      {row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}
                     </TableCell>
+                    <TableCell className="w-[62px] text-right font-semibold tabular-nums">
+                      {rowValue}
+                    </TableCell>
+                    {showDeltaColumn && (
+                      <TableCell className="w-[68px] text-right tabular-nums text-slate-600">
+                        {formatOptionalStat(row.expectedPoints, 1)}
+                      </TableCell>
+                    )}
                     {showDeltaColumn && (
                       <TableCell className="w-[88px] text-right">
                         <span
@@ -959,6 +1123,155 @@ function TableCard({ title, rows, favoriteTeam, mode, gameweek, onGameweekChange
                     )}
                     <TableCell className={formColumnClass}>
                       <FormChips results={isCurrentMode ? row.form : row.predictedForm} />
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function formatRecord(row) {
+  return `${row.won}-${row.drawn}-${row.lost}`
+}
+
+function formatGoalsPair(row) {
+  return `${row.goalsFor}-${row.goalsAgainst}`
+}
+
+function ComparativeTablesCard({ currentTable, predictedTable, favoriteTeam, gameweek, onGameweekChange }) {
+  const groupDivider = 'shadow-[inset_0.5px_0_0_rgba(148,163,184,0.22)]'
+  const predictedByTeam = new Map(predictedTable.map((row) => [normalizeTeamName(row.team), row]))
+  const comparisonRows = currentTable.map((current) => {
+    const predicted = predictedByTeam.get(normalizeTeamName(current.team))
+    return {
+      team: current.team,
+      current,
+      predicted,
+      positionDelta: predicted ? current.position - predicted.position : 0,
+      pointsDelta: predicted ? predicted.predictedPoints - current.points : 0,
+    }
+  })
+
+  return (
+    <Card className="overflow-hidden bg-white/85 shadow-sm">
+      <CardHeader className="px-4 pb-4 pt-4 sm:px-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Comparison Matrix</p>
+            <CardTitle className="text-xl">Current vs predicted standings</CardTitle>
+            <CardDescription className="mt-1 text-xs">
+              One row per club keeps the live table and forecast directly comparable. W-D-L and GF-GA are compacted to reduce visual load.
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={String(gameweek)} onValueChange={(value) => onGameweekChange(Number(value))}>
+              <SelectTrigger className="h-9 w-[96px] bg-white text-xs text-slate-900">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {gameweeks.map((week) => (
+                  <SelectItem key={`comparison-gw-${week}`} value={String(week)}>
+                    GW {week}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
+              Live vs Forecast
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 pt-0 sm:px-5">
+        <div className="matches-scroll-container overflow-x-auto overflow-y-hidden rounded-lg bg-white/70">
+          <Table className="min-w-[1180px] table-fixed border-separate border-spacing-y-1">
+            <TableHeader className="bg-transparent [&_tr]:border-b-0">
+              <TableRow className="border-b-0 bg-slate-50/70 hover:bg-slate-50/70">
+                <TableHead colSpan={2} className="text-center text-slate-700">
+                  Club
+                </TableHead>
+                <TableHead colSpan={5} className={cn('text-center text-sky-700', groupDivider)}>
+                  Current
+                </TableHead>
+                <TableHead colSpan={4} className={cn('text-center text-emerald-700', groupDivider)}>
+                  Predicted
+                </TableHead>
+                <TableHead colSpan={2} className={cn('text-center text-slate-700', groupDivider)}>
+                  Difference
+                </TableHead>
+              </TableRow>
+              <TableRow className="border-b-0 bg-slate-50/70 hover:bg-slate-50/70">
+                <TableHead className="w-[54px] whitespace-nowrap">Pos</TableHead>
+                <TableHead className="w-[220px] whitespace-nowrap">Team</TableHead>
+                <TableHead className={cn('w-[64px] whitespace-nowrap text-right', groupDivider)}>Pts</TableHead>
+                <TableHead className="w-[86px] whitespace-nowrap text-right">W-D-L</TableHead>
+                <TableHead className="w-[76px] whitespace-nowrap text-right">GF-GA</TableHead>
+                <TableHead className="w-[56px] whitespace-nowrap text-right">GD</TableHead>
+                <TableHead className="w-[112px] whitespace-nowrap">Form</TableHead>
+                <TableHead className={cn('w-[64px] whitespace-nowrap text-right', groupDivider)}>Pos</TableHead>
+                <TableHead className="w-[64px] whitespace-nowrap text-right">Pred</TableHead>
+                <TableHead className="w-[86px] whitespace-nowrap text-right">W-D-L</TableHead>
+                <TableHead className="w-[64px] whitespace-nowrap text-right">xPts</TableHead>
+                <TableHead className={cn('w-[74px] whitespace-nowrap text-right', groupDivider)}>Pos +/-</TableHead>
+                <TableHead className="w-[74px] whitespace-nowrap text-right">Pts +/-</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {comparisonRows.map(({ team, current, predicted, positionDelta, pointsDelta }) => {
+                const isFavorite = normalizeTeamName(team) === normalizeTeamName(favoriteTeam)
+                const moveLabel = positionDelta > 0 ? `+${positionDelta}` : String(positionDelta)
+                const pointsLabel = pointsDelta > 0 ? `+${pointsDelta}` : String(pointsDelta)
+
+                return (
+                  <TableRow
+                    key={`comparison-${team}`}
+                    className={cn(
+                      'h-14 border-b-0 bg-white/55 hover:bg-slate-50/70',
+                      isFavorite && 'bg-amber-50/70 hover:bg-amber-50'
+                    )}
+                  >
+                    <TableCell className="w-[54px] font-semibold text-sky-700">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-sky-50 text-xs">
+                        {current.position}
+                      </span>
+                    </TableCell>
+                    <TableCell className="w-[220px] font-medium">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <ClubLogo team={team} />
+                        <span className="truncate">{team}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className={cn('w-[64px] text-right font-semibold tabular-nums', groupDivider)}>
+                      {current.points}
+                    </TableCell>
+                    <TableCell className="w-[86px] text-right tabular-nums text-slate-700">{formatRecord(current)}</TableCell>
+                    <TableCell className="w-[76px] text-right tabular-nums text-slate-700">{formatGoalsPair(current)}</TableCell>
+                    <TableCell className={cn('w-[56px] text-right font-semibold tabular-nums', comparisonDeltaClass(current.goalDifference))}>
+                      {current.goalDifference > 0 ? `+${current.goalDifference}` : current.goalDifference}
+                    </TableCell>
+                    <TableCell className="w-[112px]">
+                      <FormChips results={current.form} />
+                    </TableCell>
+                    <TableCell className={cn('w-[64px] text-right font-semibold tabular-nums text-emerald-700', groupDivider)}>
+                      {predicted?.position ?? '-'}
+                    </TableCell>
+                    <TableCell className="w-[64px] text-right font-semibold tabular-nums">{predicted?.predictedPoints ?? '-'}</TableCell>
+                    <TableCell className="w-[86px] text-right tabular-nums text-slate-700">
+                      {predicted ? formatRecord(predicted) : '-'}
+                    </TableCell>
+                    <TableCell className="w-[64px] text-right tabular-nums text-slate-600">
+                      {predicted ? formatOptionalStat(predicted.expectedPoints, 1) : '-'}
+                    </TableCell>
+                    <TableCell className={cn('w-[74px] text-right font-semibold tabular-nums', groupDivider, comparisonDeltaClass(positionDelta))}>
+                      {predicted ? moveLabel : '-'}
+                    </TableCell>
+                    <TableCell className={cn('w-[74px] text-right font-semibold tabular-nums', deltaClass(pointsDelta))}>
+                      {predicted ? pointsLabel : '-'}
                     </TableCell>
                   </TableRow>
                 )
@@ -997,15 +1310,15 @@ function PerformerList({ title, subtitle, items, favoriteTeam, direction }) {
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3 pt-0">
+      <CardContent className="hairline-list pt-0">
         {items.map((item) => {
           const isFavorite = item.team === favoriteTeam
           return (
             <div
               key={item.team}
               className={cn(
-                'flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-3',
-                isFavorite && 'border-amber-200 bg-amber-50'
+                'flex items-center justify-between px-3 py-3',
+                isFavorite && 'bg-amber-50/70'
               )}
             >
               <div className="space-y-0.5">
@@ -1145,16 +1458,16 @@ function FavoriteTeamCard({ favoriteTeam, onFavoriteTeamChange, favoriteSnapshot
           </Select>
         </div>
         {favoriteSnapshot && (
-          <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div>
+          <div className="hairline-grid grid grid-cols-3 gap-0 rounded-lg bg-slate-50/70">
+            <div className="p-3">
               <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Current</p>
               <p className="mt-1 text-sm font-semibold tabular-nums">{favoriteSnapshot.points} pts</p>
             </div>
-            <div>
+            <div className="p-3">
               <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Predicted</p>
               <p className="mt-1 text-sm font-semibold tabular-nums">{favoriteSnapshot.predictedPoints} pts</p>
             </div>
-            <div>
+            <div className="p-3">
               <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Delta</p>
               <p className="mt-1 text-sm font-semibold tabular-nums">
                 {favoriteSnapshot.delta > 0 ? '+' : ''}
@@ -1168,10 +1481,244 @@ function FavoriteTeamCard({ favoriteTeam, onFavoriteTeamChange, favoriteSnapshot
   )
 }
 
+function OverviewControlPanel({
+  season,
+  seasonOptions,
+  onSeasonChange,
+  favoriteTeam,
+  onFavoriteTeamChange,
+  teamOptions,
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <SeasonSelector
+        season={season}
+        seasonOptions={seasonOptions}
+        onSeasonChange={onSeasonChange}
+        className="[&_[role=combobox]]:w-full"
+      />
+      <div className="space-y-2">
+        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Club</p>
+        <Select value={favoriteTeam} onValueChange={onFavoriteTeamChange}>
+          <SelectTrigger className="w-full border-slate-300 bg-white text-slate-900">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {teamOptions.map((team) => (
+              <SelectItem key={team} value={team}>
+                <div className="flex items-center gap-2">
+                  <ClubLogo team={team} />
+                  <span>{team}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  )
+}
+
+function buildOverviewPageData(matches, currentTable, predictedTable) {
+  const insightData = buildMatchPageInsightData(matches)
+  const clubs = new Set()
+  matches.forEach((match) => {
+    clubs.add(match.homeTeam)
+    clubs.add(match.awayTeam)
+  })
+
+  const modelHits = matches.filter((match) => match.predictionCorrect).length
+  const averageConfidence = average(matches.map((match) => match.modelConfidence))
+  const modelMarketAgreement = matches.length
+    ? matches.filter((match) => match.modelPickCode === deriveMarketPickCode(match)).length / matches.length
+    : null
+  const goalsPerMatch = insightData.gameTexture.find((item) => item.label === 'Goals / Match')?.value ?? null
+  const topEdge = insightData.modelEdges[0] ?? null
+  const highestConfidence = [...matches].sort((a, b) => b.modelConfidence - a.modelConfidence)[0] ?? null
+  const currentLeader = currentTable[0] ?? null
+  const projectedLeader = predictedTable[0] ?? null
+  const titleShift =
+    currentLeader && projectedLeader && normalizeTeamName(currentLeader.team) !== normalizeTeamName(projectedLeader.team)
+
+  return {
+    metrics: [
+      { label: 'Fixtures Analysed', value: matches.length.toLocaleString(), detail: `${clubs.size} clubs in this season` },
+      {
+        label: 'Model Hit Rate',
+        value: matches.length ? formatPercent(modelHits / matches.length) : '-',
+        detail: `${modelHits}/${matches.length} correct result calls`,
+      },
+      {
+        label: 'Average Confidence',
+        value: Number.isFinite(averageConfidence) ? formatPercent(averageConfidence) : '-',
+        detail: 'Mean top-outcome probability',
+      },
+      {
+        label: 'Model-Market Agreement',
+        value: Number.isFinite(modelMarketAgreement) ? formatPercent(modelMarketAgreement) : '-',
+        detail: 'Same 1X2 side as market',
+      },
+    ],
+    goalsPerMatch,
+    topEdge,
+    highestConfidence,
+    currentLeader,
+    projectedLeader,
+    titleShift,
+  }
+}
+
+function OverviewMetricStrip({ metrics }) {
+  return (
+    <section className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 overflow-hidden rounded-lg bg-white/75 md:grid-cols-2 xl:grid-cols-4">
+      {metrics.map((metric) => (
+        <div key={metric.label} className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{metric.label}</p>
+          <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">{metric.value}</p>
+          <p className="mt-1 text-sm text-slate-600">{metric.detail}</p>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function OverviewHeroSignal({ data }) {
+  const confidenceRows = data.highestConfidence
+    ? outcomeProbabilityRows(data.highestConfidence)
+    : []
+  const leaderRows = [
+    { label: 'Current', row: data.currentLeader },
+    { label: 'Projected', row: data.projectedLeader },
+  ].filter((item) => item.row)
+
+  return (
+    <Card className="overflow-hidden border-slate-200 bg-white/85 shadow-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Season Intelligence</p>
+            <CardTitle className="mt-2 text-xl">Signal Board</CardTitle>
+          </div>
+          {data.titleShift && (
+            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+              Table divergence
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5 pt-0">
+        <div className="hairline-grid grid grid-cols-2 gap-0 rounded-lg bg-slate-50/70">
+          {leaderRows.map((item) => (
+            <div key={item.label} className="p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{item.label} Leader</p>
+              <div className="mt-2 flex items-center gap-2">
+                <ClubLogo team={item.row.team} />
+                <p className="truncate text-sm font-semibold text-slate-900">{item.row.team}</p>
+              </div>
+              <p className="mt-1 text-xs tabular-nums text-slate-600">
+                {item.label === 'Current' ? `${item.row.points} pts` : `${item.row.predictedPoints} projected pts`}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {data.highestConfidence && (
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Strongest Model Read</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">
+                  {data.highestConfidence.homeTeam} vs {data.highestConfidence.awayTeam}
+                </p>
+              </div>
+              <span className="text-lg font-semibold tabular-nums text-slate-950">
+                {formatPercent(data.highestConfidence.modelConfidence)}
+              </span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {confidenceRows.map((row) => (
+                <div key={`overview-confidence-${row.code}`} className="grid grid-cols-[4.5rem_1fr_3.5rem] items-center gap-2 text-xs">
+                  <span className="font-medium text-slate-600">{row.shortLabel}</span>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-slate-900" style={{ width: probabilityBarHeight(row.model) }} />
+                  </div>
+                  <span className="text-right tabular-nums text-slate-700">{formatPercent(row.model)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {data.topEdge && (
+          <div className="rounded-lg bg-sky-50/70 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-700">Largest Model Edge</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">
+              {data.topEdge.homeTeam} vs {data.topEdge.awayTeam}
+            </p>
+            <p className="mt-1 text-xs text-slate-600">
+              {data.topEdge.edgeLabel}: {formatSigned(data.topEdge.edgeDelta * 100, 1)} pts versus market
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function OverviewActionGrid() {
+  const actions = [
+    {
+      to: '/matches',
+      title: 'Open Match Lab',
+      description: 'Drill into fixture probabilities, odds movement, shots, cards, and scoring progression.',
+      icon: Activity,
+    },
+    {
+      to: '/model-output',
+      title: 'Explore Model Output',
+      description: 'Compare model picks with market signals and switch into the predicted season table.',
+      icon: BrainCircuit,
+    },
+    {
+      to: '/club',
+      title: 'Track a Club',
+      description: 'Follow one team through outcomes, confidence, expected points, and prediction accuracy.',
+      icon: Home,
+    },
+  ]
+
+  return (
+    <section className="grid gap-4 lg:grid-cols-3">
+      {actions.map((item) => {
+        const Icon = item.icon
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className="group rounded-lg bg-white/75 p-5 transition-colors hover:bg-white"
+          >
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-white transition-transform group-hover:-translate-y-0.5">
+              <Icon className="h-5 w-5" />
+            </div>
+            <h3 className="text-base font-semibold text-slate-950">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 group-hover:text-slate-900">
+              View
+            </p>
+          </NavLink>
+        )
+      })}
+    </section>
+  )
+}
+
 function OverviewPage({
   season,
   seasonOptions,
   onSeasonChange,
+  matches,
+  currentTable,
+  predictedTable,
   topOver,
   topUnder,
   favoriteTeam,
@@ -1179,25 +1726,26 @@ function OverviewPage({
   onFavoriteTeamChange,
   teamOptions,
 }) {
+  const overviewData = useMemo(
+    () => buildOverviewPageData(matches, currentTable, predictedTable),
+    [matches, currentTable, predictedTable]
+  )
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
-        <SeasonSelector season={season} seasonOptions={seasonOptions} onSeasonChange={onSeasonChange} />
-      </div>
       <section className="grid items-start gap-6 lg:grid-cols-[1.35fr_0.9fr]">
         <div className="space-y-5">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Premier League Predictor</p>
           <h1 className="max-w-4xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
-            Smarter Premier League Predictions, Backed by Data, Not Guesswork
+            Every fixture, every market move, every model signal in one sharp view.
           </h1>
           <p className="max-w-3xl text-lg leading-relaxed text-slate-700">
-            Match-by-match insights, team form analysis, and AI-driven predictions to help you stay ahead every
-            gameweek.
+            Turn Premier League results into a live intelligence layer: match probabilities, bookmaker context,
+            pressure stats, confidence levels, and projected tables.
           </p>
           <p className="max-w-3xl text-base leading-relaxed text-muted-foreground md:text-lg">
-            This platform delivers data-driven predictions for every Premier League fixture. By combining statistical
-            modelling, historical performance, and current team form, each forecast is designed to go beyond
-            surface-level analysis and highlight the factors that genuinely influence match outcomes.
+            The app brings together historical fixture data, pre-match odds, softmax probability modelling, and
+            post-match analysis so users can move from a headline scoreline to the underlying signal in seconds.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
             <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
@@ -1210,14 +1758,36 @@ function OverviewPage({
               Structured model insights
             </Badge>
           </div>
+          <div className="flex flex-wrap gap-3 pt-2">
+            <NavLink
+              to="/model-output"
+              className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-700"
+            >
+              Explore model insights
+            </NavLink>
+            <NavLink
+              to="/matches"
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:border-slate-500"
+            >
+              Open match analysis
+            </NavLink>
+          </div>
         </div>
-        <FavoriteTeamCard
-          favoriteTeam={favoriteTeam}
-          onFavoriteTeamChange={onFavoriteTeamChange}
-          favoriteSnapshot={favoriteSnapshot}
-          teamOptions={teamOptions}
-        />
+        <div className="space-y-5">
+          <OverviewHeroSignal data={overviewData} />
+          <OverviewControlPanel
+            season={season}
+            seasonOptions={seasonOptions}
+            onSeasonChange={onSeasonChange}
+            favoriteTeam={favoriteTeam}
+            onFavoriteTeamChange={onFavoriteTeamChange}
+            teamOptions={teamOptions}
+          />
+        </div>
       </section>
+
+      <OverviewMetricStrip metrics={overviewData.metrics} />
+      <OverviewActionGrid />
 
       <section className="grid gap-6 md:grid-cols-2">
         <PerformerList
@@ -1239,6 +1809,119 @@ function OverviewPage({
   )
 }
 
+function buildTablesPageData(currentTable, predictedTable, favoriteTeam) {
+  const predictedByTeam = new Map(predictedTable.map((row) => [normalizeTeamName(row.team), row]))
+  const movementRows = currentTable
+    .map((row) => {
+      const predicted = predictedByTeam.get(normalizeTeamName(row.team))
+      const projectedPosition = predicted?.position ?? row.position
+      return {
+        team: row.team,
+        currentPosition: row.position,
+        projectedPosition,
+        movement: row.position - projectedPosition,
+        points: row.points,
+        predictedPoints: predicted?.predictedPoints ?? row.predictedPoints,
+      }
+    })
+    .sort((a, b) => Math.abs(b.movement) - Math.abs(a.movement) || a.projectedPosition - b.projectedPosition)
+
+  const currentLeader = currentTable[0] ?? null
+  const predictedLeader = predictedTable[0] ?? null
+  const favoriteCurrent = currentTable.find((row) => normalizeTeamName(row.team) === normalizeTeamName(favoriteTeam)) ?? null
+  const favoritePredicted = predictedTable.find((row) => normalizeTeamName(row.team) === normalizeTeamName(favoriteTeam)) ?? null
+  const topFourChange = predictedTable
+    .slice(0, 4)
+    .filter((row) => !currentTable.slice(0, 4).some((current) => normalizeTeamName(current.team) === normalizeTeamName(row.team)))
+  const averagePointGap = average(
+    currentTable
+      .map((row) => Math.abs((predictedByTeam.get(normalizeTeamName(row.team))?.predictedPoints ?? row.predictedPoints) - row.points))
+      .filter(Number.isFinite)
+  )
+
+  return {
+    currentLeader,
+    predictedLeader,
+    favoriteCurrent,
+    favoritePredicted,
+    biggestRisers: movementRows.filter((row) => row.movement > 0).slice(0, 3),
+    biggestFallers: movementRows.filter((row) => row.movement < 0).slice(0, 3),
+    topFourChange,
+    averagePointGap,
+  }
+}
+
+function MovementList({ title, rows, tone }) {
+  const isPositive = tone === 'positive'
+
+  return (
+    <div className="rounded-lg bg-white/75 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</p>
+        <Badge
+          variant="outline"
+          className={cn(
+            isPositive
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-rose-200 bg-rose-50 text-rose-700'
+          )}
+        >
+          {isPositive ? 'Risers' : 'Fallers'}
+        </Badge>
+      </div>
+      <div className="hairline-list mt-3">
+        {rows.length ? (
+          rows.map((row) => (
+            <div key={`${title}-${row.team}`} className="flex items-center justify-between gap-3 py-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <ClubLogo team={row.team} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{row.team}</p>
+                  <p className="text-xs text-slate-500">
+                    {row.currentPosition}. current to {row.projectedPosition}. projected
+                  </p>
+                </div>
+              </div>
+              <span className={cn('text-sm font-semibold tabular-nums', isPositive ? 'text-emerald-700' : 'text-rose-700')}>
+                {formatSigned(row.movement, 0)}
+              </span>
+            </div>
+          ))
+        ) : (
+          <p className="py-3 text-sm text-slate-500">No meaningful movement yet.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TablesInsightPanel({ data }) {
+  return (
+    <section className="grid gap-4 lg:grid-cols-[1fr_1fr_0.9fr]">
+      <MovementList title="Projected Climbers" rows={data.biggestRisers} tone="positive" />
+      <MovementList title="Projected Sliders" rows={data.biggestFallers} tone="negative" />
+      <div className="rounded-lg bg-white/75 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Top Four Watch</p>
+        <div className="hairline-list mt-3">
+          {data.topFourChange.length ? (
+            data.topFourChange.map((row) => (
+              <div key={`top-four-${row.team}`} className="flex items-center gap-2 py-3">
+                <ClubLogo team={row.team} />
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{row.team}</p>
+                  <p className="text-xs text-slate-500">Projected into the top four</p>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="py-3 text-sm text-slate-500">Model top four currently matches the live top four.</p>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function TablesPage({
   season,
   seasonOptions,
@@ -1249,6 +1932,11 @@ function TablesPage({
   gameweek,
   onGameweekChange,
 }) {
+  const tableInsights = useMemo(
+    () => buildTablesPageData(currentTable, predictedTable, favoriteTeam),
+    [currentTable, predictedTable, favoriteTeam]
+  )
+
   return (
     <div className="space-y-4">
       <section className="flex flex-wrap items-end justify-between gap-4">
@@ -1261,24 +1949,16 @@ function TablesPage({
         </div>
         <SeasonSelector season={season} seasonOptions={seasonOptions} onSeasonChange={onSeasonChange} />
       </section>
-      <section className="grid items-stretch gap-4 xl:grid-cols-2">
-        <TableCard
-          title="Current table"
-          rows={currentTable}
-          favoriteTeam={favoriteTeam}
-          mode="current"
-          gameweek={gameweek}
-          onGameweekChange={onGameweekChange}
-        />
-        <TableCard
-          title="Predicted table"
-          rows={predictedTable}
-          favoriteTeam={favoriteTeam}
-          mode="predicted"
-          gameweek={gameweek}
-          onGameweekChange={onGameweekChange}
-        />
-      </section>
+
+      <ComparativeTablesCard
+        currentTable={currentTable}
+        predictedTable={predictedTable}
+        favoriteTeam={favoriteTeam}
+        gameweek={gameweek}
+        onGameweekChange={onGameweekChange}
+      />
+
+      <TablesInsightPanel data={tableInsights} />
     </div>
   )
 }
@@ -1527,9 +2207,9 @@ function buildMatchPageInsightData(matches) {
 
 function MatchSummaryTiles({ summary }) {
   return (
-    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <section className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 overflow-hidden rounded-lg bg-white/70 md:grid-cols-2 xl:grid-cols-4">
       {summary.map((item) => (
-        <div key={item.label} className="rounded-lg border border-slate-200 bg-white p-4">
+        <div key={item.label} className="p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
           <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{item.value}</p>
           <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
@@ -1541,11 +2221,11 @@ function MatchSummaryTiles({ summary }) {
 
 function OutcomeMixChart({ title, rows }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="hairline-y rounded-lg bg-white/80 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</p>
-      <div className="mt-4 space-y-3">
+      <div className="hairline-list mt-4">
         {rows.map((row) => (
-          <div key={`${title}-${row.code}`} className="grid grid-cols-[5.5rem_1fr_3.5rem] items-center gap-3 text-sm">
+          <div key={`${title}-${row.code}`} className="grid grid-cols-[5.5rem_1fr_3.5rem] items-center gap-3 py-3 text-sm">
             <span className="font-medium text-slate-700">{row.label}</span>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div className="h-full rounded-full bg-slate-900" style={{ width: probabilityBarHeight(row.share) }} />
@@ -1562,9 +2242,9 @@ function GameTexturePanel({ texture }) {
   const maxValue = Math.max(...texture.map((item) => (item.format === 'percent' ? safeChartValue(item.value) * 100 : safeChartValue(item.value))), 1)
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="hairline-y rounded-lg bg-white/80 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Game Texture</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="hairline-grid md-cols-2 mt-4 grid gap-0 md:grid-cols-2">
         {texture.map((item) => {
           const displayValue =
             item.format === 'percent'
@@ -1575,7 +2255,7 @@ function GameTexturePanel({ texture }) {
           const scaledValue = item.format === 'percent' ? safeChartValue(item.value) * 100 : safeChartValue(item.value)
 
           return (
-            <div key={item.label} className="space-y-2">
+            <div key={item.label} className="space-y-2 p-3">
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span className="font-medium text-slate-700">{item.label}</span>
                 <span className="tabular-nums text-slate-900">{displayValue}</span>
@@ -1592,44 +2272,59 @@ function GameTexturePanel({ texture }) {
 }
 
 function TeamSignalPanel({ teams }) {
+  const safeTeams = Array.isArray(teams) ? teams : []
+  const hasTeams = safeTeams.length > 0
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="hairline-y rounded-lg bg-white/80 p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Team Pressure Signals</p>
         <p className="text-xs text-slate-500">Top shot + corner volume</p>
       </div>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-            <tr className="border-b border-slate-200">
-              <th className="py-2 pr-3">Team</th>
-              <th className="px-3 py-2 text-right">Pressure</th>
-              <th className="px-3 py-2 text-right">Goals</th>
-              <th className="px-3 py-2 text-right">Shot Acc.</th>
-              <th className="px-3 py-2 text-right">Conversion</th>
-              <th className="pl-3 py-2 text-right">Pts vs xPts</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {teams.map((team) => (
-              <tr key={`team-signal-${team.team}`}>
-                <td className="py-3 pr-3">
-                  <div className="flex items-center gap-2">
-                    <ClubLogo team={team.team} />
-                    <span className="font-semibold text-slate-900">{team.team}</span>
-                  </div>
-                </td>
-                <td className="px-3 py-3 text-right tabular-nums text-slate-700">{team.pressurePerMatch.toFixed(1)}</td>
-                <td className="px-3 py-3 text-right tabular-nums text-slate-700">{team.goalsPerMatch.toFixed(1)}</td>
-                <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatPercent(team.shotAccuracy)}</td>
-                <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatPercent(team.conversion)}</td>
-                <td className={cn('pl-3 py-3 text-right tabular-nums font-semibold', comparisonDeltaClass(team.pointDelta))}>
-                  {formatSigned(team.pointDelta, 1)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="matches-scroll-container mt-4 overflow-x-auto overflow-y-hidden rounded-lg bg-white/70">
+        {hasTeams ? (
+          <Table className="min-w-[760px] table-fixed">
+            <TableHeader className="bg-slate-50/70">
+              <TableRow className="border-b-0 hover:bg-transparent">
+                <TableHead className="w-[220px] whitespace-nowrap">Team</TableHead>
+                <TableHead className="w-[112px] whitespace-nowrap text-right">Pressure</TableHead>
+                <TableHead className="w-[96px] whitespace-nowrap text-right">G/Match</TableHead>
+                <TableHead className="w-[112px] whitespace-nowrap text-right">Shot Acc.</TableHead>
+                <TableHead className="w-[116px] whitespace-nowrap text-right">Conversion</TableHead>
+                <TableHead className="w-[120px] whitespace-nowrap text-right">Pts vs xPts</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {safeTeams.map((team) => (
+                <TableRow key={`team-signal-${team.team}`} className="h-14">
+                  <TableCell className="w-[220px] font-medium">
+                    <div className="flex items-center gap-2">
+                      <ClubLogo team={team.team} />
+                      <span className="whitespace-nowrap font-semibold text-slate-900">{team.team}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="w-[112px] text-right tabular-nums text-slate-700">
+                    {team.pressurePerMatch.toFixed(1)}
+                  </TableCell>
+                  <TableCell className="w-[96px] text-right tabular-nums text-slate-700">
+                    {team.goalsPerMatch.toFixed(1)}
+                  </TableCell>
+                  <TableCell className="w-[112px] text-right tabular-nums text-slate-700">
+                    {formatPercent(team.shotAccuracy)}
+                  </TableCell>
+                  <TableCell className="w-[116px] text-right tabular-nums text-slate-700">
+                    {formatPercent(team.conversion)}
+                  </TableCell>
+                  <TableCell className={cn('w-[120px] text-right tabular-nums font-semibold', comparisonDeltaClass(team.pointDelta))}>
+                    {formatSigned(team.pointDelta, 1)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <p className="p-4 text-sm text-slate-500">No pressure signal data is available for this season.</p>
+        )}
       </div>
     </div>
   )
@@ -1637,14 +2332,14 @@ function TeamSignalPanel({ teams }) {
 
 function ModelEdgePanel({ matches, onSelectMatch }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="hairline-y rounded-lg bg-white/80 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Model Edges vs Market</p>
-      <div className="mt-4 space-y-3">
+      <div className="hairline-list mt-4">
         {matches.map((match) => (
           <button
             key={`model-edge-${match.id}`}
             type="button"
-            className="grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-slate-50"
+            className="grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-md px-2 py-3 text-left hover:bg-slate-50"
             onClick={() => onSelectMatch(match)}
           >
             <span className="min-w-0">
@@ -1735,22 +2430,22 @@ function MatchOverviewPanel({ match }) {
 
   return (
     <Card className="border-slate-200 bg-white shadow-sm">
-      <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <CardContent className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 p-0 md:grid-cols-2 lg:grid-cols-4">
         {overviewItems.map((item) => (
-          <div key={item.label} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+          <div key={item.label} className="bg-white/60 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
             <p className={cn('mt-1 font-semibold text-slate-900', item.emphasis ? 'text-xl tabular-nums' : 'text-sm')}>
               {item.value}
             </p>
           </div>
         ))}
-        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+        <div className="bg-white/60 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Actual Result</p>
           <Badge variant="outline" className={cn('mt-2 uppercase tracking-[0.12em]', matchOutcomeBadgeClass(match.fullTimeResult))}>
             {matchOutcomeLabelMap[match.fullTimeResult] ?? 'Unknown'}
           </Badge>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+        <div className="bg-white/60 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Prediction</p>
           <Badge
             variant="outline"
@@ -2219,7 +2914,7 @@ function BookmakerOddsPanel({ match }) {
   const bookmakerOdds = Array.isArray(match.bookmakerOdds) ? match.bookmakerOdds : []
 
   return (
-    <Card className="border-slate-200 bg-white shadow-sm">
+    <Card className="bg-white/85 shadow-sm">
       <CardHeader className="pb-3">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -2235,39 +2930,56 @@ function BookmakerOddsPanel({ match }) {
       </CardHeader>
       <CardContent>
         {bookmakerOdds.length ? (
-          <div className="matches-scroll-container overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full min-w-[860px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                <tr>
-                  <th className="px-3 py-3">Bookmaker</th>
-                  <th className="px-3 py-3 text-right">Open Home</th>
-                  <th className="px-3 py-3 text-right">Open Draw</th>
-                  <th className="px-3 py-3 text-right">Open Away</th>
-                  <th className="px-3 py-3 text-right">Close Home</th>
-                  <th className="px-3 py-3 text-right">Close Draw</th>
-                  <th className="px-3 py-3 text-right">Close Away</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
+          <div className="matches-scroll-container overflow-x-auto overflow-y-hidden rounded-lg bg-white/70">
+            <Table className="min-w-[920px] table-fixed border-separate border-spacing-y-1">
+              <TableHeader className="bg-slate-50/70">
+                <TableRow className="border-b-0 hover:bg-transparent">
+                  <TableHead className="w-[250px] whitespace-nowrap">Bookmaker</TableHead>
+                  <TableHead className="w-[110px] whitespace-nowrap border-l border-slate-200/40 text-right">Open Home</TableHead>
+                  <TableHead className="w-[110px] whitespace-nowrap border-l border-slate-200/40 text-right">Open Draw</TableHead>
+                  <TableHead className="w-[110px] whitespace-nowrap border-l border-slate-200/40 text-right">Open Away</TableHead>
+                  <TableHead className="w-[110px] whitespace-nowrap border-l border-slate-200/40 text-right">Close Home</TableHead>
+                  <TableHead className="w-[110px] whitespace-nowrap border-l border-slate-200/40 text-right">Close Draw</TableHead>
+                  <TableHead className="w-[110px] whitespace-nowrap border-l border-slate-200/40 text-right">Close Away</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="[&_tr:last-child]:border-0">
                 {bookmakerOdds.map((bookmaker) => (
-                  <tr key={`bookmaker-odds-${bookmaker.code}`}>
-                    <td className="px-3 py-3 font-semibold text-slate-900">
-                      <span>{bookmaker.label}</span>
-                      <span className="ml-2 text-xs font-medium text-slate-400">{bookmaker.code}</span>
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatOdds(bookmaker.home)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatOdds(bookmaker.draw)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatOdds(bookmaker.away)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-900">{formatOdds(bookmaker.closingHome)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-900">{formatOdds(bookmaker.closingDraw)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-900">{formatOdds(bookmaker.closingAway)}</td>
-                  </tr>
+                  <TableRow
+                    key={`bookmaker-odds-${bookmaker.code}`}
+                    className="h-12 border-b-0 bg-white/55 hover:bg-slate-50/70"
+                  >
+                    <TableCell className="w-[250px] font-semibold text-slate-900">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate">{bookmaker.label}</span>
+                        <span className="shrink-0 text-xs font-medium text-slate-400">{bookmaker.code}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="w-[110px] border-l border-slate-200/30 text-right tabular-nums text-slate-700">
+                      {formatOdds(bookmaker.home)}
+                    </TableCell>
+                    <TableCell className="w-[110px] border-l border-slate-200/30 text-right tabular-nums text-slate-700">
+                      {formatOdds(bookmaker.draw)}
+                    </TableCell>
+                    <TableCell className="w-[110px] border-l border-slate-200/30 text-right tabular-nums text-slate-700">
+                      {formatOdds(bookmaker.away)}
+                    </TableCell>
+                    <TableCell className="w-[110px] border-l border-slate-200/30 text-right tabular-nums font-medium text-slate-900">
+                      {formatOdds(bookmaker.closingHome)}
+                    </TableCell>
+                    <TableCell className="w-[110px] border-l border-slate-200/30 text-right tabular-nums font-medium text-slate-900">
+                      {formatOdds(bookmaker.closingDraw)}
+                    </TableCell>
+                    <TableCell className="w-[110px] border-l border-slate-200/30 text-right tabular-nums font-medium text-slate-900">
+                      {formatOdds(bookmaker.closingAway)}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         ) : (
-          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
+          <div className="rounded-lg bg-slate-50/70 p-4 text-sm text-slate-600">
             No bookmaker odds are available for this fixture.
           </div>
         )}
@@ -2623,40 +3335,241 @@ function MatchesPage({
   )
 }
 
+function MethodologyStatCard({ label, value, detail }) {
+  return (
+    <div className="bg-white/70 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
+      <p className="mt-1 text-sm text-slate-600">{detail}</p>
+    </div>
+  )
+}
+
+function MethodologyModelComparison({ metrics }) {
+  const models = [
+    {
+      key: 'teams_only_softmax',
+      label: 'Teams Only',
+      description: 'Baseline using club identity and date context.',
+      tone: 'bg-slate-500',
+    },
+    {
+      key: 'teams_plus_odds_softmax',
+      label: 'Teams + Odds',
+      description: 'Production-style model with pre-match odds features.',
+      tone: 'bg-sky-500',
+    },
+    {
+      key: 'market_implied_probabilities',
+      label: 'Market Implied',
+      description: 'Bookmaker probability benchmark after overround normalisation.',
+      tone: 'bg-amber-500',
+    },
+  ].map((model) => ({ ...model, ...metrics.models[model.key] }))
+  const bestAccuracy = Math.max(...models.map((model) => model.accuracy))
+  const bestLogLoss = Math.min(...models.map((model) => model.log_loss))
+
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Backtest Comparison</CardTitle>
+        <CardDescription>
+          Holdout performance on the {metrics.test_season} season. Accuracy rewards correct picks; log loss rewards calibrated probabilities.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="hairline-list">
+        {models.map((model) => (
+          <div key={model.key} className="p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-slate-900">{model.label}</p>
+                <p className="mt-1 text-sm text-slate-600">{model.description}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {model.accuracy === bestAccuracy && (
+                  <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                    Best accuracy
+                  </Badge>
+                )}
+                {model.log_loss === bestLogLoss && (
+                  <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
+                    Best calibration
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">Accuracy</span>
+                  <span className="font-semibold tabular-nums text-slate-900">{formatPercent(model.accuracy)}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white">
+                  <div className={cn('h-full rounded-full', model.tone)} style={{ width: probabilityBarHeight(model.accuracy) }} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">Log Loss</span>
+                  <span className="font-semibold tabular-nums text-slate-900">{model.log_loss.toFixed(3)}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white">
+                  <div
+                    className={cn('h-full rounded-full', model.tone)}
+                    style={{ width: `${Math.max((bestLogLoss / model.log_loss) * 100, 4)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function MethodologyPipeline() {
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Pipeline</CardTitle>
+        <CardDescription>How raw football-data CSVs become probabilities in the app.</CardDescription>
+      </CardHeader>
+      <CardContent className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 p-0 md:grid-cols-2 xl:grid-cols-4">
+        {methodologyPipeline.map((item) => (
+          <div key={item.step} className="bg-white/60 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{item.step}</p>
+            <h3 className="mt-3 text-base font-semibold text-slate-900">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function MethodologyFeatureGrid() {
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Feature Design</CardTitle>
+        <CardDescription>What is allowed into the model, and what is deliberately kept out.</CardDescription>
+      </CardHeader>
+      <CardContent className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 p-0 md:grid-cols-2 xl:grid-cols-4">
+        {methodologyFeatureGroups.map((item) => (
+          <div key={item.title} className="bg-white/60 p-5">
+            <h3 className="text-base font-semibold text-slate-900">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function MethodologySeasonCoverage({ counts }) {
+  const entries = Object.entries(counts)
+  const maxMatches = Math.max(...entries.map(([, count]) => count), 1)
+
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Season Coverage</CardTitle>
+        <CardDescription>Historical match volume used to train and backtest the probability model.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="hairline-grid md-cols-2 lg-cols-3 xl-cols-4 grid gap-0 overflow-hidden rounded-lg bg-white/70 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {entries.map(([season, count]) => (
+            <div key={season} className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2 p-3 text-sm">
+              <span className="font-medium text-slate-700">{season}</span>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-slate-900" style={{ width: barPercent(count, maxMatches) }} />
+              </div>
+              <span className="text-right tabular-nums text-slate-600">{count}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function MethodologyPage() {
+  const oddsModel = premOddsMetrics.models.teams_plus_odds_softmax
+  const marketModel = premOddsMetrics.models.market_implied_probabilities
+  const accuracyGap = oddsModel.accuracy - premOddsMetrics.models.teams_only_softmax.accuracy
+
   return (
     <section className="space-y-4">
       <div className="space-y-2">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-500">How It Works</p>
         <h2 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Every prediction is built on a structured approach.
+          From historical fixtures to calibrated match probabilities.
         </h2>
         <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
-          Rather than relying on guesswork, the platform focuses on measurable signals that shape results across a
-          full Premier League season.
+          The model is intentionally built around information available before kick-off, then tested against a held-out
+          season so users can judge how much signal it adds beyond team history and market odds.
         </p>
       </div>
-      <Card className="border-slate-200 bg-white shadow-sm">
-        <CardContent className="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-4">
-          {methodology.map((item) => {
-            const Icon = item.icon
-            return (
-              <div key={item.title} className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200">
-                  <Icon className="h-5 w-5 text-slate-700" />
-                </div>
-                <h3 className="text-base font-semibold text-slate-900">{item.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+
+      <section className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 overflow-hidden rounded-lg bg-white/70 md:grid-cols-2 xl:grid-cols-4">
+        <MethodologyStatCard
+          label="Matches Used"
+          value={premOddsMetrics.matches_used.toLocaleString()}
+          detail={`${premOddsMetrics.seasons_used} seasons from ${premOddsMetrics.data_start} to ${premOddsMetrics.data_end}`}
+        />
+        <MethodologyStatCard
+          label="Training Split"
+          value={premOddsMetrics.train_matches.toLocaleString()}
+          detail={`${premOddsMetrics.test_matches} fixtures held out for ${premOddsMetrics.test_season}`}
+        />
+        <MethodologyStatCard
+          label="Production Accuracy"
+          value={formatPercent(oddsModel.accuracy)}
+          detail={`${formatSigned(accuracyGap * 100, 1)} pts versus teams-only baseline`}
+        />
+        <MethodologyStatCard
+          label="Market Benchmark"
+          value={formatPercent(marketModel.accuracy)}
+          detail={`Market log loss ${marketModel.log_loss.toFixed(3)} on the same holdout season`}
+        />
+      </section>
+
+      <MethodologyPipeline />
+      <MethodologyModelComparison metrics={premOddsMetrics} />
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <MethodologyFeatureGrid />
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Leakage Controls</CardTitle>
+            <CardDescription>Why the model avoids using data that would only be known after the final whistle.</CardDescription>
+          </CardHeader>
+          <CardContent className="hairline-list">
+            {premOddsMetrics.notes.map((note) => (
+              <div key={note} className="p-4">
+                <p className="text-sm leading-6 text-slate-700">{note}</p>
               </div>
-            )
-          })}
-        </CardContent>
-      </Card>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <MethodologySeasonCoverage counts={premOddsMetrics.season_match_counts} />
     </section>
   )
 }
 
-function ModelOutputPage({ favoriteTeam, matches, modelOutputTable, season, seasonOptions, onSeasonChange }) {
+function ModelOutputPage({
+  favoriteTeam,
+  matches,
+  predictedTable,
+  gameweek,
+  onGameweekChange,
+  season,
+  seasonOptions,
+  onSeasonChange,
+}) {
   const [activeView, setActiveView] = useState('insights')
   const [activeMatchIndex, setActiveMatchIndex] = useState(-1)
   const modelInsights = useMemo(() => buildMatchPageInsightData(matches), [matches])
@@ -2743,7 +3656,14 @@ function ModelOutputPage({ favoriteTeam, matches, modelOutputTable, season, seas
           <TeamSignalPanel teams={modelInsights.teamSignals} />
         </div>
       ) : (
-        <FinalModelTableCard rows={modelOutputTable} favoriteTeam={favoriteTeam} season={season} />
+        <TableCard
+          title="Predicted table"
+          rows={predictedTable}
+          favoriteTeam={favoriteTeam}
+          mode="predicted"
+          gameweek={gameweek}
+          onGameweekChange={onGameweekChange}
+        />
       )}
 
       <MatchDetailsDrawer
@@ -2821,28 +3741,28 @@ function ClubPage({
         <CardContent className="space-y-4 pt-0">
           {clubSummary ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="hairline-grid md-cols-2 xl-cols-6 grid gap-0 overflow-hidden rounded-lg bg-white/70 md:grid-cols-2 xl:grid-cols-6">
+                <div className="p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Played</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums">{clubSummary.played}</p>
                 </div>
-                <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+                <div className="bg-sky-50/60 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-sky-700">Points</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-sky-700">{clubSummary.actualPoints}</p>
                 </div>
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                <div className="bg-emerald-50/60 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-emerald-700">Wins</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-emerald-700">{clubSummary.wins}</p>
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Draws</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums">{clubSummary.draws}</p>
                 </div>
-                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+                <div className="bg-rose-50/60 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-rose-700">Losses</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-rose-700">{clubSummary.losses}</p>
                 </div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="bg-amber-50/60 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-amber-700">Model Accuracy / Confidence</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-amber-700">
                     {formatPercent(clubSummary.modelAccuracy)} / {formatPercent(clubSummary.averageConfidence)}
@@ -2855,8 +3775,8 @@ function ClubPage({
                   <p className="text-xs uppercase tracking-[0.16em] text-indigo-700">Actual vs Model Expectation</p>
                   <p className="text-sm text-indigo-900/90">Delta is actual minus expected from model probabilities.</p>
                 </div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                <div className="hairline-grid md-cols-2 xl-cols-4 mt-3 grid gap-0 overflow-hidden rounded-lg bg-white/70 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="p-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Wins</p>
                     <p className="mt-1 text-sm tabular-nums">
                       {clubSummary.wins} actual vs {clubSummary.expectedWins.toFixed(1)} expected
@@ -2865,7 +3785,7 @@ function ClubPage({
                       {formatSigned(clubSummary.winDelta)}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                  <div className="p-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Draws</p>
                     <p className="mt-1 text-sm tabular-nums">
                       {clubSummary.draws} actual vs {clubSummary.expectedDraws.toFixed(1)} expected
@@ -2874,7 +3794,7 @@ function ClubPage({
                       {formatSigned(clubSummary.drawDelta)}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                  <div className="p-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Losses</p>
                     <p className="mt-1 text-sm tabular-nums">
                       {clubSummary.losses} actual vs {clubSummary.expectedLosses.toFixed(1)} expected
@@ -2883,7 +3803,7 @@ function ClubPage({
                       {formatSigned(clubSummary.lossDelta)}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                  <div className="p-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Points</p>
                     <p className="mt-1 text-sm tabular-nums">
                       {clubSummary.actualPoints} actual vs {clubSummary.expectedPoints.toFixed(1)} expected
@@ -3073,8 +3993,6 @@ export default function App() {
     setSelectedGameweek(getSeasonCurrentGameweek(seasonFixtures))
   }, [activeSeason, seasonFixtures])
 
-  const modelOutputTable = useMemo(() => buildModelOutputTable(seasonFixtures), [seasonFixtures])
-
   const seasonMatches = useMemo(
     () =>
       sortFixturesChronologically(seasonFixtures).map((match, index) => {
@@ -3238,28 +4156,61 @@ export default function App() {
       const actualRow = actualByTeam.get(team) ?? {
         team,
         played: 0,
+        won: 0,
+        drawn: 0,
+        lost: 0,
         points: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        goalDifference: 0,
         form: emptyForm(),
       }
       const predictedRow = predictedByTeam.get(team)
       return {
         team,
         played: actualRow.played,
+        won: actualRow.won,
+        drawn: actualRow.drawn,
+        lost: actualRow.lost,
         points: actualRow.points,
+        goalsFor: actualRow.goalsFor,
+        goalsAgainst: actualRow.goalsAgainst,
+        goalDifference: actualRow.goalDifference,
         predictedPoints: predictedRow?.Points ?? 0,
+        expectedPoints: predictedRow?.ExpectedPoints ?? 0,
+        predictedWon: predictedRow?.Won ?? 0,
+        predictedDrawn: predictedRow?.Drawn ?? 0,
+        predictedLost: predictedRow?.Lost ?? 0,
         form: actualRow.form,
         predictedForm: predictedRow?.Form ?? emptyForm(),
       }
     })
 
     const currentTable = [...mergedRows]
-      .sort((a, b) => b.points - a.points || b.predictedPoints - a.predictedPoints || a.team.localeCompare(b.team))
+      .sort(
+        (a, b) =>
+          b.points - a.points ||
+          b.goalDifference - a.goalDifference ||
+          b.goalsFor - a.goalsFor ||
+          b.predictedPoints - a.predictedPoints ||
+          a.team.localeCompare(b.team)
+      )
       .map((row, index) => ({ ...row, position: index + 1 }))
 
     const predictedTable = [...mergedRows]
-      .sort((a, b) => b.predictedPoints - a.predictedPoints || b.points - a.points || a.team.localeCompare(b.team))
+      .sort(
+        (a, b) =>
+          b.predictedPoints - a.predictedPoints ||
+          b.goalDifference - a.goalDifference ||
+          b.goalsFor - a.goalsFor ||
+          b.points - a.points ||
+          a.team.localeCompare(b.team)
+      )
       .map((row, index) => ({
         ...row,
+        won: row.predictedWon,
+        drawn: row.predictedDrawn,
+        lost: row.predictedLost,
         position: index + 1,
         delta: row.predictedPoints - row.points,
       }))
@@ -3306,6 +4257,9 @@ export default function App() {
                 season={activeSeason}
                 seasonOptions={seasonOptions}
                 onSeasonChange={setSelectedSeason}
+                matches={seasonMatches}
+                currentTable={currentTable}
+                predictedTable={predictedTable}
                 topOver={topOver}
                 topUnder={topUnder}
                 favoriteTeam={favoriteTeam}
@@ -3367,7 +4321,9 @@ export default function App() {
               <ModelOutputPage
                 favoriteTeam={favoriteTeam}
                 matches={seasonMatches}
-                modelOutputTable={modelOutputTable}
+                predictedTable={predictedTable}
+                gameweek={selectedGameweek}
+                onGameweekChange={setSelectedGameweek}
                 season={activeSeason}
                 seasonOptions={seasonOptions}
                 onSeasonChange={setSelectedSeason}
