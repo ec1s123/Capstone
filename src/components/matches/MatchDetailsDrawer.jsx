@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
 import { ClubLogo } from '../shared/ClubLogo'
 import { cn } from '../../lib/utils'
 import { deriveMarketPickCode } from '../../lib/standings'
+import { getDisplayTeamName } from '../../lib/teamUtils'
 import {
   comparisonDeltaClass,
   formatMatchOutcome,
@@ -14,6 +15,7 @@ import {
   formatOptionalPercent,
   formatOptionalStat,
   formatPercent,
+  formatProbabilityPointGap,
   formatScoreline,
   formatSigned,
   formatStatPair,
@@ -31,47 +33,50 @@ export function MatchOverviewPanel({ match }) {
   const marketPickCode = deriveMarketPickCode(match)
   const halfTimeScore = formatScoreline(match.halfTimeHomeGoals, match.halfTimeAwayGoals)
   const predictionStatus = match.predictionCorrect ? 'Correct' : 'Miss'
+  const predictionTone = match.predictionCorrect
+    ? 'bg-emerald-50 text-emerald-700'
+    : 'bg-rose-50 text-rose-700'
 
   const overviewItems = [
-    { label: 'Date', value: match.matchDate },
-    { label: 'Full Time', value: formatScoreline(match.homeGoals, match.awayGoals), emphasis: true },
-    { label: 'Half Time', value: halfTimeScore },
-    { label: 'Model Pick', value: formatMatchOutcome(match.modelPickCode, match) },
-    { label: 'Market Pick', value: formatMatchOutcome(marketPickCode, match) },
-    { label: 'Confidence', value: formatPercent(match.modelConfidence), emphasis: true },
+    { label: 'Date', value: match.matchDate, valueClass: 'text-xl tabular-nums' },
+    { label: 'HT', value: halfTimeScore, valueClass: 'text-xl tabular-nums' },
+    { label: 'FT', value: formatScoreline(match.homeGoals, match.awayGoals), valueClass: 'text-xl tabular-nums' },
+    { label: 'Confidence', value: formatPercent(match.modelConfidence), valueClass: 'text-xl tabular-nums' },
+    { label: 'Model', value: formatMatchOutcome(match.modelPickCode, match), badgeClass: matchOutcomeBadgeClass(match.modelPickCode) },
+    { label: 'Market', value: formatMatchOutcome(marketPickCode, match), badgeClass: matchOutcomeBadgeClass(marketPickCode) },
+    { label: 'Result', value: formatMatchOutcome(match.fullTimeResult, match), badgeClass: matchOutcomeBadgeClass(match.fullTimeResult) },
+    { label: 'Prediction', value: predictionStatus, badgeClass: predictionTone, uppercase: true },
   ]
 
   return (
     <Card className="border-slate-200 bg-white shadow-sm">
-      <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <CardContent className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
         {overviewItems.map((item) => (
-          <div key={item.label} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
-            <p className={cn('mt-1 font-semibold text-slate-900', item.emphasis ? 'text-xl tabular-nums' : 'text-sm')}>
-              {item.value}
-            </p>
+          <div key={item.label} className="min-w-0 rounded-lg bg-slate-50/70 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
+            {item.badgeClass ? (
+              <Badge
+                variant="outline"
+                className={cn(
+                  'mt-2 max-w-full truncate px-2.5 py-1 font-semibold tracking-normal',
+                  item.uppercase && 'uppercase tracking-[0.12em]',
+                  item.badgeClass
+                )}
+              >
+                {item.value}
+              </Badge>
+            ) : (
+              <p
+                className={cn(
+                  'mt-1 truncate font-semibold text-slate-900',
+                  item.valueClass ?? 'text-sm'
+                )}
+              >
+                {item.value}
+              </p>
+            )}
           </div>
         ))}
-        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Actual Result</p>
-          <Badge variant="outline" className={cn('mt-2 font-semibold tracking-normal', matchOutcomeBadgeClass(match.fullTimeResult))}>
-            {formatMatchOutcome(match.fullTimeResult, match)}
-          </Badge>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Prediction</p>
-          <Badge
-            variant="outline"
-            className={cn(
-              'mt-2 uppercase tracking-[0.12em]',
-              match.predictionCorrect
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : 'border-rose-200 bg-rose-50 text-rose-700'
-            )}
-          >
-            {predictionStatus}
-          </Badge>
-        </div>
       </CardContent>
     </Card>
   )
@@ -144,10 +149,12 @@ export function ProbabilityComparisonChart({ match }) {
 
         <div className="space-y-3">
           <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Largest Model Edge</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              Largest Model-Market Probability Gap
+            </p>
             <p className="mt-1 text-lg font-semibold text-slate-900">{largestModelEdge.label}</p>
             <p className="text-sm text-slate-600">
-              {formatSigned(largestModelEdge.delta * 100, 1)} pts versus market
+              Model rates it {formatProbabilityPointGap(largestModelEdge.delta)}.
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
@@ -176,6 +183,7 @@ export function ShotQualityChart({ match }) {
   const teams = [
     {
       team: match.homeTeam,
+      displayTeam: getDisplayTeamName(match.homeTeam),
       goals: match.homeGoals,
       shots: match.homeShots,
       shotsOnTarget: match.homeShotsOnTarget,
@@ -185,6 +193,7 @@ export function ShotQualityChart({ match }) {
     },
     {
       team: match.awayTeam,
+      displayTeam: getDisplayTeamName(match.awayTeam),
       goals: match.awayGoals,
       shots: match.awayShots,
       shotsOnTarget: match.awayShotsOnTarget,
@@ -211,7 +220,7 @@ export function ShotQualityChart({ match }) {
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <ClubLogo team={team.team} />
-                  <p className="truncate text-sm font-semibold text-slate-900">{team.team}</p>
+                  <p className="truncate text-sm font-semibold text-slate-900">{team.displayTeam}</p>
                 </div>
                 <p className="text-lg font-semibold tabular-nums text-slate-900">{formatOptionalStat(team.goals)}</p>
               </div>
@@ -271,9 +280,9 @@ export function MatchShareChart({ match }) {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-          <span className="truncate text-sky-700">{match.homeTeam}</span>
+          <span className="truncate text-sky-700">{getDisplayTeamName(match.homeTeam)}</span>
           <span>Metric</span>
-          <span className="truncate text-right text-rose-700">{match.awayTeam}</span>
+          <span className="truncate text-right text-rose-700">{getDisplayTeamName(match.awayTeam)}</span>
         </div>
         {metrics.map((metric) => {
           const total = safeChartValue(metric.home) + safeChartValue(metric.away)
@@ -383,11 +392,11 @@ export function MatchRadarChart({ match }) {
           <div className="flex flex-wrap justify-center gap-3 text-xs text-slate-600">
             <span className="inline-flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-sm bg-sky-500" />
-              {match.homeTeam}
+              {getDisplayTeamName(match.homeTeam)}
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" />
-              {match.awayTeam}
+              {getDisplayTeamName(match.awayTeam)}
             </span>
           </div>
         </div>
@@ -490,11 +499,11 @@ export function ScoreProgressionChart({ match }) {
           <div className="mt-2 flex flex-wrap justify-center gap-3 text-xs text-slate-600">
             <span className="inline-flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-sm bg-sky-500" />
-              {match.homeTeam}
+              {getDisplayTeamName(match.homeTeam)}
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" />
-              {match.awayTeam}
+              {getDisplayTeamName(match.awayTeam)}
             </span>
           </div>
         </div>
@@ -524,7 +533,21 @@ export function ScoreProgressionChart({ match }) {
 }
 
 export function BookmakerOddsPanel({ match }) {
-  const bookmakerOdds = Array.isArray(match.bookmakerOdds) ? match.bookmakerOdds : []
+  const bookmakerOdds = Array.isArray(match.bookmakerOdds)
+    ? match.bookmakerOdds.filter((bookmaker) =>
+        [
+          bookmaker.home,
+          bookmaker.draw,
+          bookmaker.away,
+          bookmaker.closingHome,
+          bookmaker.closingDraw,
+          bookmaker.closingAway,
+        ].some((value) => Number.isFinite(value) && value > 0)
+      )
+    : []
+  const oddsGridStyle = {
+    gridTemplateColumns: 'minmax(14rem, 1.55fr) repeat(6, minmax(7.5rem, 1fr))',
+  }
 
   return (
     <Card className="border-slate-200 bg-white shadow-sm">
@@ -543,36 +566,57 @@ export function BookmakerOddsPanel({ match }) {
       </CardHeader>
       <CardContent>
         {bookmakerOdds.length ? (
-          <div className="matches-scroll-container overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full min-w-[860px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                <tr>
-                  <th className="px-3 py-3">Bookmaker</th>
-                  <th className="px-3 py-3 text-right">Open Home</th>
-                  <th className="px-3 py-3 text-right">Open Draw</th>
-                  <th className="px-3 py-3 text-right">Open Away</th>
-                  <th className="px-3 py-3 text-right">Close Home</th>
-                  <th className="px-3 py-3 text-right">Close Draw</th>
-                  <th className="px-3 py-3 text-right">Close Away</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
+          <div className="matches-scroll-container overflow-x-auto rounded-lg bg-white">
+            <div className="min-w-[1020px] text-sm" role="table" aria-label="Bookmaker odds">
+              <div
+                className="grid items-center bg-slate-50 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500"
+                style={oddsGridStyle}
+                role="row"
+              >
+                <div className="px-4 py-3 text-left" role="columnheader">Bookmaker</div>
+                <div className="px-4 py-3 text-right" role="columnheader">Open Home</div>
+                <div className="px-4 py-3 text-right" role="columnheader">Open Draw</div>
+                <div className="px-4 py-3 text-right" role="columnheader">Open Away</div>
+                <div className="px-4 py-3 text-right" role="columnheader">Close Home</div>
+                <div className="px-4 py-3 text-right" role="columnheader">Close Draw</div>
+                <div className="px-4 py-3 text-right" role="columnheader">Close Away</div>
+              </div>
+              <div className="divide-y divide-slate-200 bg-white" role="rowgroup">
                 {bookmakerOdds.map((bookmaker) => (
-                  <tr key={`bookmaker-odds-${bookmaker.code}`}>
-                    <td className="px-3 py-3 font-semibold text-slate-900">
-                      <span>{bookmaker.label}</span>
-                      <span className="ml-2 text-xs font-medium text-slate-400">{bookmaker.code}</span>
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatOdds(bookmaker.home)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatOdds(bookmaker.draw)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatOdds(bookmaker.away)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-900">{formatOdds(bookmaker.closingHome)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-900">{formatOdds(bookmaker.closingDraw)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-900">{formatOdds(bookmaker.closingAway)}</td>
-                  </tr>
+                  <div
+                    key={`bookmaker-odds-${bookmaker.code}`}
+                    className="grid items-center"
+                    style={oddsGridStyle}
+                    role="row"
+                  >
+                    <div className="min-w-0 px-4 py-3 text-left font-semibold text-slate-900" role="cell">
+                      <div className="flex min-w-0 items-baseline gap-2">
+                        <span className="truncate">{bookmaker.label}</span>
+                        <span className="shrink-0 text-xs font-medium text-slate-400">{bookmaker.code}</span>
+                      </div>
+                    </div>
+                    <div className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700" role="cell">
+                      {formatOdds(bookmaker.home)}
+                    </div>
+                    <div className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700" role="cell">
+                      {formatOdds(bookmaker.draw)}
+                    </div>
+                    <div className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700" role="cell">
+                      {formatOdds(bookmaker.away)}
+                    </div>
+                    <div className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-900" role="cell">
+                      {formatOdds(bookmaker.closingHome)}
+                    </div>
+                    <div className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-900" role="cell">
+                      {formatOdds(bookmaker.closingDraw)}
+                    </div>
+                    <div className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-900" role="cell">
+                      {formatOdds(bookmaker.closingAway)}
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
@@ -608,7 +652,7 @@ export function MatchDetailsDrawer({ matches, activeIndex, onClose, onSelectInde
                 <ClubLogo team={match.homeTeam} size="lg" />
                 <div className="min-w-0">
                   <p className="truncate text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-                    {match.homeTeam} vs {match.awayTeam}
+                    {getDisplayTeamName(match.homeTeam)} vs {getDisplayTeamName(match.awayTeam)}
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
                     {match.matchDate} · {formatScoreline(match.homeGoals, match.awayGoals)}

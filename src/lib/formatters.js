@@ -1,4 +1,6 @@
 // This code was generated with Codex.
+import { getDisplayTeamName } from './teamUtils'
+
 export function deltaClass(delta) {
   if (delta > 0) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (delta < 0) return 'border-rose-200 bg-rose-50 text-rose-700'
@@ -19,8 +21,8 @@ export const outcomeLabelMap = {
 }
 
 export function formatMatchOutcome(resultCode, match) {
-  if (resultCode === 'H') return `${match.homeTeam} Win (H)`
-  if (resultCode === 'A') return `${match.awayTeam} Win (A)`
+  if (resultCode === 'H') return `${getDisplayTeamName(match.homeTeam)} Win (H)`
+  if (resultCode === 'A') return `${getDisplayTeamName(match.awayTeam)} Win (A)`
   if (resultCode === 'D') return 'Draw'
   return 'Unknown'
 }
@@ -68,13 +70,22 @@ export function formatOptionalStat(value, decimals = 0) {
 }
 
 export function formatOdds(value) {
-  if (!Number.isFinite(value)) return '-'
+  if (!Number.isFinite(value) || value <= 0) return '-'
   return value.toFixed(2)
 }
 
 export function formatSigned(value, decimals = 1) {
   const fixed = value.toFixed(decimals)
   return value > 0 ? `+${fixed}` : fixed
+}
+
+export function formatProbabilityPointGap(value, decimals = 1) {
+  if (!Number.isFinite(value)) return 'not comparable with market'
+
+  const amount = `${Math.abs(value * 100).toFixed(decimals)} percentage points`
+  if (value > 0) return `${amount} above market`
+  if (value < 0) return `${amount} below market`
+  return 'aligned with market'
 }
 
 export function comparisonDeltaClass(delta, inverse = false) {

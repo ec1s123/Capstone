@@ -23,6 +23,7 @@ import { ClubLogo } from '../components/shared/ClubLogo'
 import { FormChips } from '../components/shared/FormChips'
 import { SeasonSelector } from '../components/shared/SeasonSelector'
 import { cn } from '../lib/utils'
+import { getDisplayTeamName } from '../lib/teamUtils'
 import {
   confidenceBadgeClass,
   formatMatchOutcome,
@@ -51,9 +52,9 @@ function formatKickoff(match) {
 
 function probabilityRows(match) {
   return [
-    { code: 'H', label: match.homeTeam, shortLabel: 'Home', value: match.modelHomeProb },
+    { code: 'H', label: getDisplayTeamName(match.homeTeam), shortLabel: 'Home', value: match.modelHomeProb },
     { code: 'D', label: 'Draw', shortLabel: 'Draw', value: match.modelDrawProb },
-    { code: 'A', label: match.awayTeam, shortLabel: 'Away', value: match.modelAwayProb },
+    { code: 'A', label: getDisplayTeamName(match.awayTeam), shortLabel: 'Away', value: match.modelAwayProb },
   ]
 }
 
@@ -118,7 +119,7 @@ function UpcomingInsightCard({ title, description, match, icon: Icon, metric }) 
         {match ? (
           <>
             <p className="text-sm font-semibold text-slate-900">
-              {match.homeTeam} vs {match.awayTeam}
+              {getDisplayTeamName(match.homeTeam)} vs {getDisplayTeamName(match.awayTeam)}
             </p>
             <p className="text-xs text-muted-foreground">
               {formatFixtureDate(match.matchDate)} · {formatKickoff(match)}
@@ -136,9 +137,9 @@ function UpcomingInsightCard({ title, description, match, icon: Icon, metric }) 
 function TeamFixtureCell({ team, align = 'left' }) {
   return (
     <div className={cn('flex min-w-0 items-center gap-2', align === 'right' && 'justify-end')}>
-      {align === 'right' && <span className="min-w-0 truncate text-right font-semibold text-slate-900">{team}</span>}
+      {align === 'right' && <span className="min-w-0 truncate text-right font-semibold text-slate-900">{getDisplayTeamName(team)}</span>}
       <ClubLogo team={team} />
-      {align !== 'right' && <span className="min-w-0 truncate font-semibold text-slate-900">{team}</span>}
+      {align !== 'right' && <span className="min-w-0 truncate font-semibold text-slate-900">{getDisplayTeamName(team)}</span>}
     </div>
   )
 }
@@ -238,9 +239,9 @@ function UpcomingMatchDetails({ match }) {
         <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Expected Points Split</p>
           <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-sm">
-            <span className="truncate font-semibold text-emerald-700">{match.homeTeam}</span>
+            <span className="truncate font-semibold text-emerald-700">{getDisplayTeamName(match.homeTeam)}</span>
             <span className="text-xs text-slate-400">vs</span>
-            <span className="truncate text-right font-semibold text-rose-700">{match.awayTeam}</span>
+            <span className="truncate text-right font-semibold text-rose-700">{getDisplayTeamName(match.awayTeam)}</span>
             <span className="tabular-nums text-slate-900">{match.homeExpectedPoints.toFixed(2)}</span>
             <span />
             <span className="text-right tabular-nums text-slate-900">{match.awayExpectedPoints.toFixed(2)}</span>

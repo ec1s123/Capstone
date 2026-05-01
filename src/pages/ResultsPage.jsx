@@ -18,6 +18,7 @@ import { MatchInsightCard } from '../components/matches/MatchInsightCard'
 import { MatchColumnsMenu } from '../components/matches/MatchColumnsMenu'
 import { MatchDetailsDrawer } from '../components/matches/MatchDetailsDrawer'
 import { cn } from '../lib/utils'
+import { getDisplayTeamName } from '../lib/teamUtils'
 import {
   confidenceBadgeClass,
   formatMatchOutcome,
@@ -145,7 +146,7 @@ export function ResultsPage({
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <ClubLogo team={match.homeTeam} />
-                          <span>{match.homeTeam}</span>
+                          <span>{getDisplayTeamName(match.homeTeam)}</span>
                         </div>
                       </TableCell>
                     )}
@@ -153,7 +154,7 @@ export function ResultsPage({
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <ClubLogo team={match.awayTeam} />
-                          <span>{match.awayTeam}</span>
+                          <span>{getDisplayTeamName(match.awayTeam)}</span>
                         </div>
                       </TableCell>
                     )}

@@ -4,6 +4,7 @@ import { Activity } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { cn } from '../../lib/utils'
 import { formatMatchOutcome, formatPercent, formatScoreline } from '../../lib/formatters'
+import { getDisplayTeamName } from '../../lib/teamUtils'
 
 export function MatchInsightCard({ title, description, match, tone = 'neutral', icon: Icon = Activity }) {
   const toneStyles = {
@@ -62,7 +63,7 @@ export function MatchInsightCard({ title, description, match, tone = 'neutral', 
         {match ? (
           <>
             <p className="text-sm font-semibold text-slate-900">
-              {match.homeTeam} {formatScoreline(match.homeGoals, match.awayGoals)} {match.awayTeam}
+              {getDisplayTeamName(match.homeTeam)} {formatScoreline(match.homeGoals, match.awayGoals)} {getDisplayTeamName(match.awayTeam)}
             </p>
             <p className="text-xs text-muted-foreground">{match.matchDate}</p>
             <p className={cn('text-xs', palette.model)}>
