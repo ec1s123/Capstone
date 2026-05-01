@@ -41,6 +41,13 @@ The application reads generated prediction outputs from CSV and JSON data files 
 ## Project Structure
 
 ```text
+.
+  Dockerfile                      Production Docker image for the frontend
+  docker-compose.yml              Runs the production container on localhost:8080
+  nginx.conf                      Nginx config with React Router fallback
+  package.json                    React/Vite scripts and frontend dependencies
+  requirements.txt                Python dependencies for regenerating ML outputs
+  Prem-2026-2003/                 Historical Premier League CSV source files
 src/
   App.jsx                         Main routing and app-level state
   MLMODEL.py                      Model training and prediction generation script
@@ -54,10 +61,16 @@ src/
 
 ## Local Setup
 
+Run commands from the project root:
+
+```bash
+cd /Users/adam/Documents/Capstone
+```
+
 Install dependencies:
 
 ```bash
-npm install
+npm ci
 ```
 
 Run the development server:
@@ -77,6 +90,55 @@ Preview the production build locally:
 ```bash
 npm run preview
 ```
+
+## Docker Setup
+
+Run commands from the project root:
+
+```bash
+cd /Users/adam/Documents/Capstone
+```
+
+Build and run the production app in Docker:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+```text
+http://localhost:8080
+```
+
+`docker compose up --build` runs in the foreground, so closing the terminal or pressing `Ctrl+C` stops the container. To keep it running in the background, use:
+
+```bash
+docker compose up --build -d
+```
+
+Check whether the container is running:
+
+```bash
+docker compose ps
+```
+
+Stop the background container:
+
+```bash
+docker compose down
+```
+
+You can also build and run without Compose:
+
+```bash
+docker build -t premier-predict .
+docker run --rm -p 8080:80 premier-predict
+```
+
+The Docker image builds the Vite app with Node.js, then serves the compiled `dist` files through Nginx. React Router routes such as `/matches`, `/results`, and `/club` are handled by the Nginx fallback in `nginx.conf`.
+
+The Python virtual environment is not required to run the Dockerized app. It is only needed if you want to run `src/MLMODEL.py` locally to regenerate prediction and metrics files.
 
 ## Deployment Notes
 
