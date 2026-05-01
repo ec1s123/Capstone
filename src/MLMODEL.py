@@ -8,6 +8,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# My machine learning work for this capstone:
+# I built this script as the full ML pipeline behind the Premier League prediction
+# app. My goal was not just to display historical data, but to turn past fixtures
+# and pre-match betting odds into probability estimates for home wins, draws, and
+# away wins. The workflow below covers the major steps I want to be graded on:
+# data cleaning, feature engineering, model training, holdout evaluation, and
+# exporting prediction files for the React frontend.
+#
+# I intentionally use only information that would be available before kickoff.
+# Final scores and match statistics are saved for reporting, but they are not used
+# as model inputs because that would leak the answer into the training process.
+
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "Prem-2026-2003"
@@ -42,19 +54,6 @@ TEAM_NORMALISATION = {
 
 BASELINE_CONFIG = {"learning_rate": 0.02, "epochs": 1500, "l2": 1e-4, "batch_size": 512}
 ODDS_MODEL_CONFIG = {"learning_rate": 0.01, "epochs": 2000, "l2": 5e-4, "batch_size": 512}
-
-
-# My machine learning work for this capstone:
-# I built this script as the full ML pipeline behind the Premier League prediction
-# app. My goal was not just to display historical data, but to turn past fixtures
-# and pre-match betting odds into probability estimates for home wins, draws, and
-# away wins. The workflow below covers the major steps I want to be graded on:
-# data cleaning, feature engineering, model training, holdout evaluation, and
-# exporting prediction files for the React frontend.
-#
-# I intentionally use only information that would be available before kickoff.
-# Final scores and match statistics are saved for reporting, but they are not used
-# as model inputs because that would leak the answer into the training process.
 
 
 @dataclass
