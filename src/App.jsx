@@ -6,14 +6,18 @@ import { defaultMatchColumnVisibility, MATCH_COLUMN_STORAGE_KEY, readCachedMatch
 import { teamList } from './data/placeholder'
 import eplFinalRaw from './data/epl_final.csv?raw'
 import premOddsPredictionsRaw from './data/prem_odds_predictions_all.csv?raw'
+import { upcomingFixtures } from './data/upcomingFixtures'
 import { ClubPage } from './pages/ClubPage'
 import { MatchesPage } from './pages/MatchesPage'
 import { MethodologyPage } from './pages/MethodologyPage'
 import { ModelOutputPage } from './pages/ModelOutputPage'
 import { OverviewPage } from './pages/OverviewPage'
+import { ResultsPage } from './pages/ResultsPage'
 import { TablesPage } from './pages/TablesPage'
+import { TalkingPointsPage } from './pages/TalkingPointsPage'
 import { normalizeTeamName } from './lib/teamUtils'
 import { parsePredictionFixtures, seasonStartFromLabel } from './lib/predictionData'
+import { buildUpcomingMatches, buildUpcomingMatchInsights } from './lib/upcomingMatches'
 import {
   buildActualTable,
   buildModelOutputTable,
@@ -224,6 +228,21 @@ export default function App() {
 
   const seasonTeams = useMemo(() => [...availableClubs], [availableClubs])
 
+  const upcomingSeasonMatches = useMemo(
+    () =>
+      buildUpcomingMatches(
+        upcomingFixtures.filter((fixture) => fixture.season === activeSeason),
+        seasonFixtures,
+        seasonTeams
+      ),
+    [activeSeason, seasonFixtures, seasonTeams]
+  )
+
+  const upcomingMatchInsights = useMemo(
+    () => buildUpcomingMatchInsights(upcomingSeasonMatches),
+    [upcomingSeasonMatches]
+  )
+
   useEffect(() => {
     if (!seasonTeams.length) return
     const normalizedFavoriteTeam = normalizeTeamName(favoriteTeam)
@@ -249,28 +268,61 @@ export default function App() {
       const actualRow = actualByTeam.get(team) ?? {
         team,
         played: 0,
+        won: 0,
+        drawn: 0,
+        lost: 0,
         points: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        goalDifference: 0,
         form: emptyForm(),
       }
       const predictedRow = predictedByTeam.get(team)
       return {
         team,
         played: actualRow.played,
+        won: actualRow.won,
+        drawn: actualRow.drawn,
+        lost: actualRow.lost,
         points: actualRow.points,
+        goalsFor: actualRow.goalsFor,
+        goalsAgainst: actualRow.goalsAgainst,
+        goalDifference: actualRow.goalDifference,
         predictedPoints: predictedRow?.Points ?? 0,
+        expectedPoints: predictedRow?.ExpectedPoints ?? 0,
+        predictedWon: predictedRow?.Won ?? 0,
+        predictedDrawn: predictedRow?.Drawn ?? 0,
+        predictedLost: predictedRow?.Lost ?? 0,
         form: actualRow.form,
         predictedForm: predictedRow?.Form ?? emptyForm(),
       }
     })
 
     const currentTable = [...mergedRows]
-      .sort((a, b) => b.points - a.points || b.predictedPoints - a.predictedPoints || a.team.localeCompare(b.team))
+      .sort(
+        (a, b) =>
+          b.points - a.points ||
+          b.goalDifference - a.goalDifference ||
+          b.goalsFor - a.goalsFor ||
+          b.predictedPoints - a.predictedPoints ||
+          a.team.localeCompare(b.team)
+      )
       .map((row, index) => ({ ...row, position: index + 1 }))
 
     const predictedTable = [...mergedRows]
-      .sort((a, b) => b.predictedPoints - a.predictedPoints || b.points - a.points || a.team.localeCompare(b.team))
+      .sort(
+        (a, b) =>
+          b.predictedPoints - a.predictedPoints ||
+          b.goalDifference - a.goalDifference ||
+          b.goalsFor - a.goalsFor ||
+          b.points - a.points ||
+          a.team.localeCompare(b.team)
+      )
       .map((row, index) => ({
         ...row,
+        won: row.predictedWon,
+        drawn: row.predictedDrawn,
+        lost: row.predictedLost,
         position: index + 1,
         delta: row.predictedPoints - row.points,
       }))
@@ -317,12 +369,32 @@ export default function App() {
                 season={activeSeason}
                 seasonOptions={seasonOptions}
                 onSeasonChange={setSelectedSeason}
+                gameweek={selectedGameweek}
+                currentTable={currentTable}
+                predictedTable={predictedTable}
+                matches={seasonMatches}
+                insights={matchInsights}
                 topOver={topOver}
                 topUnder={topUnder}
                 favoriteTeam={favoriteTeam}
                 favoriteSnapshot={favoriteSnapshot}
                 onFavoriteTeamChange={setFavoriteTeam}
                 teamOptions={seasonTeams}
+              />
+            }
+          />
+          <Route
+            path="/talking-points"
+            element={
+              <TalkingPointsPage
+                season={activeSeason}
+                seasonOptions={seasonOptions}
+                onSeasonChange={setSelectedSeason}
+                matches={seasonMatches}
+                topOver={topOver}
+                topUnder={topUnder}
+                currentTable={currentTable}
+                predictedTable={predictedTable}
               />
             }
           />
@@ -345,6 +417,18 @@ export default function App() {
             path="/matches"
             element={
               <MatchesPage
+                season={activeSeason}
+                seasonOptions={seasonOptions}
+                onSeasonChange={setSelectedSeason}
+                matches={upcomingSeasonMatches}
+                insights={upcomingMatchInsights}
+              />
+            }
+          />
+          <Route
+            path="/results"
+            element={
+              <ResultsPage
                 season={activeSeason}
                 seasonOptions={seasonOptions}
                 onSeasonChange={setSelectedSeason}
