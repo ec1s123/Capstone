@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import * as React from "react"
 
 import { cn } from "../../lib/utils"

@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 export function derivePickCodeFromProbabilities(homeProb, drawProb, awayProb) {
   const probabilities = [
     ['H', homeProb],

@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 export const navItems = [
   { to: '/', label: 'Overview' },
   { to: '/talking-points', label: 'Talking Points' },

@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 

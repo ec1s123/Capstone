@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { NavLink } from 'react-router-dom'
 
 import { navItems } from '../../constants/navigation'

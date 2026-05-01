@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { useEffect, useState } from 'react'
 
 import { cn } from '../../lib/utils'

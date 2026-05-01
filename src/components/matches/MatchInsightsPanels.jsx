@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { ClubLogo } from '../shared/ClubLogo'
 import { cn } from '../../lib/utils'
 import {

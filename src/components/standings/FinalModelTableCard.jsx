@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { Sparkles } from 'lucide-react'
 
 import { Badge } from '../ui/badge'

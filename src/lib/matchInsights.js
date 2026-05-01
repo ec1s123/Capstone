@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { deriveMarketPickCode, outcomeForClub } from './standings'
 import { formatMatchOutcome, formatPercent } from './formatters'
 

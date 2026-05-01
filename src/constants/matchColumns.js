@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 export const MATCH_COLUMN_STORAGE_KEY = 'premier_predict.matches.columns.v1'
 
 export const MATCH_COLUMN_DEFINITIONS = [

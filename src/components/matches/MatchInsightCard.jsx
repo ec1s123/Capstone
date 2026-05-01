@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { Activity } from 'lucide-react'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'

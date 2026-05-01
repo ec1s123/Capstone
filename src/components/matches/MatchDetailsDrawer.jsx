@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 

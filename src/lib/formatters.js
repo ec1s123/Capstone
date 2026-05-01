@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 export function deltaClass(delta) {
   if (delta > 0) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (delta < 0) return 'border-rose-200 bg-rose-50 text-rose-700'

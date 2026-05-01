@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { normalizeTeamName } from './teamUtils'
 
 export function seasonStartFromLabel(seasonLabel) {

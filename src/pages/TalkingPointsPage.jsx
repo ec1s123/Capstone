@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { useMemo, useState } from 'react'
 import {
   BarChart3,

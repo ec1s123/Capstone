@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 const teamAliases = {
   'AFC Bournemouth': 'Bournemouth',
   Birmingham: 'Birmingham City',

@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { normalizeTeamName } from './teamUtils'
 import {
   buildActualTable,

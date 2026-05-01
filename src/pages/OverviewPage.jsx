@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { useMemo } from 'react'
 import { NavLink } from 'react-router-dom'
 import { Activity, BrainCircuit, Calendar, Home, MessageSquareQuote } from 'lucide-react'

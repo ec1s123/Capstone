@@ -1,3 +1,4 @@
+// This code was generated with Codex.
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, Calendar, Gauge, Scale, TrendingUp } from 'lucide-react'
 
