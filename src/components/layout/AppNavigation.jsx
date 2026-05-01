@@ -7,11 +7,18 @@ import { cn } from '../../lib/utils'
 export function AppNavigation() {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur-sm">
-      <div className="mx-auto w-full max-w-[1320px] px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-[1440px] px-3 sm:px-4 lg:px-6">
         <div className="flex flex-col gap-3 py-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Premier League Predictor</p>
-            <p className="text-lg font-semibold tracking-tight text-slate-900">Data-driven match insights</p>
+          <div className="flex min-w-0 items-center gap-3">
+            <img
+              src="/prem-predictor-logo-openai-image2-2.png"
+              alt="Prem Predictor"
+              className="h-12 w-12 shrink-0 rounded-lg object-contain"
+            />
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Prem Predictor</p>
+              <p className="truncate text-lg font-semibold tracking-tight text-slate-900">Data-driven match insights</p>
+            </div>
           </div>
           <nav className="flex gap-2 overflow-x-auto pb-1">
             {navItems.map((item) => (
