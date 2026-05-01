@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { cn } from '../../lib/utils'
 import { getClubLogoUrl, getTeamInitials, normalizeTeamName } from '../../lib/teamUtils'
@@ -28,6 +28,10 @@ export function ClubLogo({ team, size = 'md' }) {
   const logoUrl = getClubLogoUrl(normalizedTeam)
   const initials = getTeamInitials(normalizedTeam)
   const sizeClass = logoSizeMap[size] ?? logoSizeMap.md
+
+  useEffect(() => {
+    setHasError(false)
+  }, [logoUrl])
 
   if (!logoUrl || hasError) {
     return (

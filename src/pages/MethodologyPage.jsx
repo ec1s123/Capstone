@@ -1,286 +1,273 @@
-import {
-  Activity,
-  BarChart3,
-  BrainCircuit,
-  FileOutput,
-  Home,
-  ShieldCheck,
-  Target,
-  TrendingUp,
-} from 'lucide-react'
-
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table'
+import premOddsMetrics from '../data/prem_odds_metrics.json'
+import { formatPercent, formatSigned } from '../lib/formatters'
+import { barPercent, probabilityBarHeight } from '../lib/matchInsights'
+import { cn } from '../lib/utils'
 
-const methodology = [
+const methodologyPipeline = [
   {
-    title: 'Historical Performance',
-    description: 'Long-term team patterns, matchup history, and season-level trends shape the baseline view.',
-    icon: Activity,
+    step: '01',
+    title: 'Load Historical Fixtures',
+    description: 'CSV files are normalised into one fixture set with consistent teams, dates, odds, results, and seasons.',
   },
   {
-    title: 'Recent Form Tracking',
-    description: 'Short-term momentum, consistency, and changes in output are factored into every fixture forecast.',
-    icon: TrendingUp,
+    step: '02',
+    title: 'Build Pre-Match Features',
+    description: 'The model only sees team identity, date context, and 1X2 market odds that would be known before kick-off.',
   },
   {
-    title: 'Match Context',
-    description: 'Home and away strength, scoring profiles, and defensive stability refine the prediction for each game.',
-    icon: Home,
+    step: '03',
+    title: 'Backtest Latest Season',
+    description: 'Older seasons train the model; the latest available season is held out to test accuracy and probability quality.',
   },
   {
-    title: 'Model-Driven Probabilities',
-    description: 'Structured model outputs turn raw football data into clearer, more actionable prediction signals.',
-    icon: BrainCircuit,
+    step: '04',
+    title: 'Publish Probabilities',
+    description: 'The production model is refit on every played fixture and outputs home, draw, and away probabilities.',
   },
 ]
 
-const pipelineRows = [
-  {
-    step: '1',
-    stage: 'Load and clean fixtures',
-    whatHappens: 'Historical Premier League CSV files are read, normalized, date-parsed, and deduplicated by fixture.',
-    userValue: 'The model starts from one consistent fixture history instead of mixed team names or duplicate matches.',
-  },
-  {
-    step: '2',
-    stage: 'Build pre-match features',
-    whatHappens: 'Team identity, month, day of week, Bet365 odds, implied probabilities, market margin, and favorite strength are derived.',
-    userValue: 'Predictions are based on information available before kickoff, not post-match stats.',
-  },
-  {
-    step: '3',
-    stage: 'Backtest latest season',
-    whatHappens: 'Older seasons train the model, while the latest season is held out to compare model picks against actual results.',
-    userValue: 'The dashboard can compare model behavior with the betting market on unseen fixtures.',
-  },
-  {
-    step: '4',
-    stage: 'Train softmax classifier',
-    whatHappens: 'A three-class softmax model estimates home-win, draw, and away-win probabilities with L2 regularization.',
-    userValue: 'Every fixture gets a full probability distribution rather than a single hard guess.',
-  },
-  {
-    step: '5',
-    stage: 'Generate reports',
-    whatHappens: 'The model writes fixture-level probabilities, market probabilities, predictions, and model artifacts into app data files.',
-    userValue: 'Tables, match cards, confidence badges, and detail panels all use the same prediction source.',
-  },
-]
-
-const featureGroups = [
+const methodologyFeatureGroups = [
   {
     title: 'Team Identity',
-    examples: 'Home team, away team',
-    reason: 'Captures persistent strength, weakness, and home/away patterns for each club.',
+    description: 'Home and away teams are encoded separately so the model can learn long-run club strength and venue effects.',
   },
   {
     title: 'Calendar Context',
-    examples: 'Month, day of week',
-    reason: 'Adds light season timing context without relying on future match information.',
+    description: 'Month and day-of-week signals let the model capture seasonal scheduling patterns without using match outcomes.',
   },
   {
-    title: 'Market Signal',
-    examples: 'Bet365 home/draw/away odds',
-    reason: 'Provides a strong pre-match benchmark that the model can learn with and compare against.',
+    title: 'Market Odds',
+    description: 'Bet365 home, draw, and away odds are transformed into probability and log-odds features for pre-match context.',
   },
   {
-    title: 'Derived Odds Features',
-    examples: 'Implied probabilities, market margin, probability gap, favorite probability, log odds',
-    reason: 'Turns raw odds into normalized signals that are easier for the model to use consistently.',
+    title: 'Excluded Match Stats',
+    description: 'Goals, shots, cards, corners, fouls, and half-time scores are kept out of training to avoid target leakage.',
   },
 ]
 
-const modelDetails = [
-  ['Prediction target', 'Three outcomes: home win, draw, away win'],
-  ['Model type', 'Custom softmax classifier trained in NumPy'],
-  ['Optimization', 'Mini-batch Adam-style gradient updates'],
-  ['Regularization', 'L2 penalty to reduce overfitting'],
-  ['Training split', 'Historical seasons train; latest season backtests'],
-  ['Production model', 'Retrained on all available played matches for the app output'],
-]
+function MethodologyStatCard({ label, value, detail }) {
+  return (
+    <div className="bg-white/70 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
+      <p className="mt-1 text-sm text-slate-600">{detail}</p>
+    </div>
+  )
+}
 
-const outputRows = [
-  {
-    output: 'Model probabilities',
-    description: 'Home, draw, and away probabilities for every fixture.',
-    usedBy: 'Confidence badges, probability charts, predicted table',
-  },
-  {
-    output: 'Market probabilities',
-    description: 'Bookmaker odds converted into normalized implied probabilities.',
-    usedBy: 'Model-vs-market comparison, edge charts',
-  },
-  {
-    output: 'Prediction correctness',
-    description: 'Compares the model pick with the recorded full-time result.',
-    usedBy: 'Accuracy cards, match rows, club breakdown',
-  },
-  {
-    output: 'Fixture stats',
-    description: 'Goals, shots, cards, corners, fouls, and halftime details when available.',
-    usedBy: 'Post-match analysis panels only',
-  },
-]
+function MethodologyModelComparison({ metrics }) {
+  const models = [
+    {
+      key: 'teams_only_softmax',
+      label: 'Teams Only',
+      description: 'Baseline using club identity and date context.',
+      tone: 'bg-slate-500',
+    },
+    {
+      key: 'teams_plus_odds_softmax',
+      label: 'Teams + Odds',
+      description: 'Production-style model with pre-match odds features.',
+      tone: 'bg-sky-500',
+    },
+    {
+      key: 'market_implied_probabilities',
+      label: 'Market Implied',
+      description: 'Bookmaker probability benchmark after overround normalisation.',
+      tone: 'bg-amber-500',
+    },
+  ].map((model) => ({ ...model, ...metrics.models[model.key] }))
+  const bestAccuracy = Math.max(...models.map((model) => model.accuracy))
+  const bestLogLoss = Math.min(...models.map((model) => model.log_loss))
+
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Backtest Comparison</CardTitle>
+        <CardDescription>
+          Holdout performance on the {metrics.test_season} season. Accuracy rewards correct picks; log loss rewards calibrated probabilities.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="hairline-list">
+        {models.map((model) => (
+          <div key={model.key} className="p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-slate-900">{model.label}</p>
+                <p className="mt-1 text-sm text-slate-600">{model.description}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {model.accuracy === bestAccuracy && (
+                  <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                    Best accuracy
+                  </Badge>
+                )}
+                {model.log_loss === bestLogLoss && (
+                  <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
+                    Best calibration
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">Accuracy</span>
+                  <span className="font-semibold tabular-nums text-slate-900">{formatPercent(model.accuracy)}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white">
+                  <div className={cn('h-full rounded-full', model.tone)} style={{ width: probabilityBarHeight(model.accuracy) }} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">Log Loss</span>
+                  <span className="font-semibold tabular-nums text-slate-900">{model.log_loss.toFixed(3)}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white">
+                  <div
+                    className={cn('h-full rounded-full', model.tone)}
+                    style={{ width: `${Math.max((bestLogLoss / model.log_loss) * 100, 4)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function MethodologyPipeline() {
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Pipeline</CardTitle>
+        <CardDescription>How raw football-data CSVs become probabilities in the app.</CardDescription>
+      </CardHeader>
+      <CardContent className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 p-0 md:grid-cols-2 xl:grid-cols-4">
+        {methodologyPipeline.map((item) => (
+          <div key={item.step} className="bg-white/60 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{item.step}</p>
+            <h3 className="mt-3 text-base font-semibold text-slate-900">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function MethodologyFeatureGrid() {
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Feature Design</CardTitle>
+        <CardDescription>What is allowed into the model, and what is deliberately kept out.</CardDescription>
+      </CardHeader>
+      <CardContent className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 p-0 md:grid-cols-2 xl:grid-cols-4">
+        {methodologyFeatureGroups.map((item) => (
+          <div key={item.title} className="bg-white/60 p-5">
+            <h3 className="text-base font-semibold text-slate-900">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function MethodologySeasonCoverage({ counts }) {
+  const entries = Object.entries(counts)
+  const maxMatches = Math.max(...entries.map(([, count]) => count), 1)
+
+  return (
+    <Card className="border-slate-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Season Coverage</CardTitle>
+        <CardDescription>Historical match volume used to train and backtest the probability model.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="hairline-grid md-cols-2 lg-cols-3 xl-cols-4 grid gap-0 overflow-hidden rounded-lg bg-white/70 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {entries.map(([season, count]) => (
+            <div key={season} className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2 p-3 text-sm">
+              <span className="font-medium text-slate-700">{season}</span>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-slate-900" style={{ width: barPercent(count, maxMatches) }} />
+              </div>
+              <span className="text-right tabular-nums text-slate-600">{count}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 export function MethodologyPage() {
+  const oddsModel = premOddsMetrics.models.teams_plus_odds_softmax
+  const marketModel = premOddsMetrics.models.market_implied_probabilities
+  const accuracyGap = oddsModel.accuracy - premOddsMetrics.models.teams_only_softmax.accuracy
+
   return (
-    <section className="space-y-5">
+    <section className="space-y-4">
       <div className="space-y-2">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-500">How It Works</p>
         <h2 className="text-3xl font-semibold tracking-tight text-slate-900">
-          How the prediction model turns fixtures into probabilities.
+          From historical fixtures to calibrated match probabilities.
         </h2>
         <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
-          The model is a pre-match softmax classifier. It learns from historical fixtures, team identity, calendar
-          context, and bookmaker odds, then produces home-win, draw, and away-win probabilities for each match.
+          The model is intentionally built around information available before kick-off, then tested against a held-out
+          season so users can judge how much signal it adds beyond team history and market odds.
         </p>
       </div>
 
-      <Card className="border-slate-200 bg-white shadow-sm">
-        <CardContent className="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-4">
-          {methodology.map((item) => {
-            const Icon = item.icon
-            return (
-              <div key={item.title} className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200">
-                  <Icon className="h-5 w-5 text-slate-700" />
-                </div>
-                <h3 className="text-base font-semibold text-slate-900">{item.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
-              </div>
-            )
-          })}
-        </CardContent>
-      </Card>
-
-      <Card className="border-slate-200 bg-white shadow-sm">
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <CardTitle className="text-xl">Model Pipeline</CardTitle>
-              <CardDescription className="mt-1">
-                The app follows the same sequence each time predictions are regenerated from <code>src/MLMODEL.py</code>.
-              </CardDescription>
-            </div>
-            <Badge variant="outline" className="gap-1 border-slate-200 bg-slate-50 text-slate-700">
-              <BrainCircuit className="h-3.5 w-3.5" />
-              Softmax
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <Table>
-              <TableHeader className="bg-slate-50">
-                <TableRow className="border-b-0 hover:bg-transparent">
-                  <TableHead className="w-[64px]">Step</TableHead>
-                  <TableHead className="w-[220px]">Stage</TableHead>
-                  <TableHead>What Happens</TableHead>
-                  <TableHead>Why It Matters</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pipelineRows.map((row) => (
-                  <TableRow key={row.step}>
-                    <TableCell className="font-semibold tabular-nums text-slate-900">{row.step}</TableCell>
-                    <TableCell className="font-semibold text-slate-900">{row.stage}</TableCell>
-                    <TableCell className="text-slate-700">{row.whatHappens}</TableCell>
-                    <TableCell className="text-slate-600">{row.userValue}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-
-      <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card className="border-slate-200 bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-xl">Feature Inputs</CardTitle>
-            <CardDescription>
-              Inputs are intentionally limited to fields known before the match starts.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 pt-0 md:grid-cols-2">
-            {featureGroups.map((group) => (
-              <div key={group.title} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                <p className="text-sm font-semibold text-slate-900">{group.title}</p>
-                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Examples</p>
-                <p className="mt-1 text-sm text-slate-700">{group.examples}</p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Purpose</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">{group.reason}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200 bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-xl">Training Setup</CardTitle>
-            <CardDescription>Key implementation choices behind the model run.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-0">
-            {modelDetails.map(([label, value]) => (
-              <div key={label} className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3 last:border-b-0 last:pb-0">
-                <p className="text-sm font-semibold text-slate-900">{label}</p>
-                <p className="max-w-[16rem] text-right text-sm text-slate-600">{value}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+      <section className="hairline-grid md-cols-2 xl-cols-4 grid gap-0 overflow-hidden rounded-lg bg-white/70 md:grid-cols-2 xl:grid-cols-4">
+        <MethodologyStatCard
+          label="Matches Used"
+          value={premOddsMetrics.matches_used.toLocaleString()}
+          detail={`${premOddsMetrics.seasons_used} seasons from ${premOddsMetrics.data_start} to ${premOddsMetrics.data_end}`}
+        />
+        <MethodologyStatCard
+          label="Training Split"
+          value={premOddsMetrics.train_matches.toLocaleString()}
+          detail={`${premOddsMetrics.test_matches} fixtures held out for ${premOddsMetrics.test_season}`}
+        />
+        <MethodologyStatCard
+          label="Production Accuracy"
+          value={formatPercent(oddsModel.accuracy)}
+          detail={`${formatSigned(accuracyGap * 100, 1)} pts versus teams-only baseline`}
+        />
+        <MethodologyStatCard
+          label="Market Benchmark"
+          value={formatPercent(marketModel.accuracy)}
+          detail={`Market log loss ${marketModel.log_loss.toFixed(3)} on the same holdout season`}
+        />
       </section>
 
-      <Card className="border-slate-200 bg-white shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-xl">How to Read the Output</CardTitle>
-          <CardDescription>
-            The model output is used differently depending on whether the screen is forecasting, comparing, or explaining a match.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 pt-0 md:grid-cols-2 xl:grid-cols-4">
-          {outputRows.map((row, index) => {
-            const icons = [Target, BarChart3, ShieldCheck, FileOutput]
-            const Icon = icons[index]
-            return (
-              <div key={row.output} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700">
-                  <Icon className="h-4 w-4" />
-                </div>
-                <p className="text-sm font-semibold text-slate-900">{row.output}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{row.description}</p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Used by</p>
-                <p className="mt-1 text-sm text-slate-700">{row.usedBy}</p>
-              </div>
-            )
-          })}
-        </CardContent>
-      </Card>
+      <MethodologyPipeline />
+      <MethodologyModelComparison metrics={premOddsMetrics} />
 
-      <Card className="border-indigo-200 bg-indigo-50/50 shadow-sm">
-        <CardContent className="grid gap-4 p-5 md:grid-cols-[auto_1fr]">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full border border-indigo-200 bg-white text-indigo-700">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-          <div className="space-y-2">
-            <p className="text-base font-semibold text-indigo-950">Leakage guardrail</p>
-            <p className="max-w-4xl text-sm leading-6 text-indigo-900/85">
-              Post-match fields such as goals, shots, corners, cards, fouls, and halftime scores are not used as model
-              inputs. They appear only after prediction generation so users can analyze why a fixture played out the
-              way it did.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <MethodologyFeatureGrid />
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Leakage Controls</CardTitle>
+            <CardDescription>Why the model avoids using data that would only be known after the final whistle.</CardDescription>
+          </CardHeader>
+          <CardContent className="hairline-list">
+            {premOddsMetrics.notes.map((note) => (
+              <div key={note} className="p-4">
+                <p className="text-sm leading-6 text-slate-700">{note}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <MethodologySeasonCoverage counts={premOddsMetrics.season_match_counts} />
     </section>
   )
 }

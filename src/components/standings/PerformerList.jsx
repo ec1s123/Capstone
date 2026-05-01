@@ -32,15 +32,15 @@ export function PerformerList({ title, subtitle, items, favoriteTeam, direction 
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3 pt-0">
+      <CardContent className="hairline-list pt-0">
         {items.map((item) => {
           const isFavorite = item.team === favoriteTeam
           return (
             <div
               key={item.team}
               className={cn(
-                'flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-3',
-                isFavorite && 'border-amber-200 bg-amber-50'
+                'flex items-center justify-between px-3 py-3',
+                isFavorite && 'bg-amber-50/70'
               )}
             >
               <div className="space-y-0.5">
