@@ -44,6 +44,19 @@ BASELINE_CONFIG = {"learning_rate": 0.02, "epochs": 1500, "l2": 1e-4, "batch_siz
 ODDS_MODEL_CONFIG = {"learning_rate": 0.01, "epochs": 2000, "l2": 5e-4, "batch_size": 512}
 
 
+# My machine learning work for this capstone:
+# I built this script as the full ML pipeline behind the Premier League prediction
+# app. My goal was not just to display historical data, but to turn past fixtures
+# and pre-match betting odds into probability estimates for home wins, draws, and
+# away wins. The workflow below covers the major steps I want to be graded on:
+# data cleaning, feature engineering, model training, holdout evaluation, and
+# exporting prediction files for the React frontend.
+#
+# I intentionally use only information that would be available before kickoff.
+# Final scores and match statistics are saved for reporting, but they are not used
+# as model inputs because that would leak the answer into the training process.
+
+
 @dataclass
 class MatrixSpec:
     home_levels: list[str]
@@ -61,6 +74,10 @@ class SoftmaxModel:
 
 
 def read_csv_robust(path: Path) -> pd.DataFrame:
+    # I wrote a more defensive CSV reader because the historical football-data files
+    # are not perfectly consistent. Some files use different encodings, contain
+    # non-breaking spaces, or have rows with a different number of fields than the
+    # header. Cleaning those issues here gives the ML pipeline a stable dataset.
     rows: list[list[str]] | None = None
     for encoding in ("utf-8", "latin1"):
         try:
@@ -108,6 +125,12 @@ def season_label(start_year: int) -> str:
 
 
 def load_match_data() -> pd.DataFrame:
+    # Data preparation:
+    # I combine all season CSVs into one DataFrame, convert date strings into real
+    # timestamps, create season labels, and normalize club names so that "Man City"
+    # and "Manchester City" are treated as the same team. This matters because the
+    # model learns team-specific patterns, so inconsistent names would split one
+    # club into multiple fake categories.
     frames = [read_csv_robust(path) for path in sorted(DATA_DIR.glob("*.csv"))]
     matches = pd.concat(frames, ignore_index=True, sort=False).copy()
 
@@ -131,8 +154,9 @@ def load_match_data() -> pd.DataFrame:
         subset=["HomeTeam", "AwayTeam", "MatchDate", "FTR", "y", "B365H", "B365D", "B365A"]
     ).copy()
 
-    # Some datasets overlap (for example, an updated season file plus an older rolling E0.csv snapshot).
-    # Keep the first encountered record for each fixture key to avoid double-counting the same match.
+    # Some datasets overlap, for example an updated season file plus an older
+    # rolling E0.csv snapshot. I remove duplicate fixtures so the same match does
+    # not get counted twice and bias the training results.
     matches = matches.drop_duplicates(
         subset=["MatchDate", "HomeTeam", "AwayTeam"],
         keep="first",
@@ -142,6 +166,11 @@ def load_match_data() -> pd.DataFrame:
     market_margin = inverse_odds.sum(axis=1, keepdims=True)
     implied_probabilities = inverse_odds / market_margin
 
+    # Feature engineering:
+    # I convert Bet365 1X2 odds into implied probabilities by taking inverse odds
+    # and normalizing out the bookmaker margin. I also include probability gap,
+    # favorite strength, and log-odds features. These features help the model learn
+    # from market expectations while still producing its own calibrated probabilities.
     feature_frame = pd.DataFrame(
         {
             "month": matches["MatchDate"].dt.month.astype(np.float64).to_numpy(),
@@ -165,6 +194,10 @@ def load_match_data() -> pd.DataFrame:
 
 
 def fit_matrix_spec(frame: pd.DataFrame, numeric_columns: list[str]) -> MatrixSpec:
+    # I fit the matrix specification on the training data only. This stores the
+    # team categories and numeric scaling values that are later reused for the test
+    # set, which avoids letting information from the holdout season influence the
+    # training transformation.
     numeric_means = frame[numeric_columns].mean().to_numpy(dtype=np.float64)
     numeric_stds = frame[numeric_columns].std(ddof=0).replace(0, 1).to_numpy(dtype=np.float64)
     return MatrixSpec(
@@ -177,6 +210,11 @@ def fit_matrix_spec(frame: pd.DataFrame, numeric_columns: list[str]) -> MatrixSp
 
 
 def build_design_matrix(frame: pd.DataFrame, spec: MatrixSpec) -> np.ndarray:
+    # Model input design:
+    # I one-hot encode home and away teams separately because playing at home is not
+    # the same as playing away. After the team columns, I append standardized numeric
+    # features. Standardizing keeps large-scale values from dominating smaller
+    # probability features during gradient descent.
     home_index = {team: index for index, team in enumerate(spec.home_levels)}
     away_index = {team: index for index, team in enumerate(spec.away_levels)}
     home_width = len(spec.home_levels)
@@ -209,6 +247,12 @@ def fit_softmax_classifier(
     spec: MatrixSpec,
     config: dict[str, float | int],
 ) -> SoftmaxModel:
+    # Model training:
+    # I implemented a multinomial logistic regression model directly with NumPy.
+    # The model produces three logits, applies softmax, and learns by minimizing
+    # cross-entropy between predicted probabilities and the actual result labels.
+    # I use mini-batches, L2 regularization, and Adam-style moment updates to make
+    # training more stable than plain gradient descent.
     rng = np.random.default_rng(RANDOM_SEED)
     sample_count, feature_count = features.shape
     class_count = len(CLASS_LABELS)
@@ -244,6 +288,10 @@ def fit_softmax_classifier(
             exponentiated = np.exp(logits)
             probabilities = exponentiated / exponentiated.sum(axis=1, keepdims=True)
 
+            # The gradient compares the model probability distribution with the
+            # one-hot actual result. If the model assigns too much probability to
+            # the wrong outcome, this update pushes the weights back toward the
+            # observed result.
             gradient = (probabilities - one_hot[batch_labels]) / len(batch_index)
             gradient_weights = batch_features.T @ gradient + l2_penalty * weights
             gradient_bias = gradient.sum(axis=0)
@@ -270,6 +318,9 @@ def fit_softmax_classifier(
 
 
 def predict_probabilities(model: SoftmaxModel, features: np.ndarray) -> np.ndarray:
+    # Prediction:
+    # I convert learned scores into probabilities with softmax, so each fixture has
+    # three outputs that add up to 1.0: home win, draw, and away win.
     logits = features @ model.weights + model.bias
     logits -= logits.max(axis=1, keepdims=True)
     exponentiated = np.exp(logits)
@@ -277,6 +328,10 @@ def predict_probabilities(model: SoftmaxModel, features: np.ndarray) -> np.ndarr
 
 
 def metrics_from_probabilities(labels: np.ndarray, probabilities: np.ndarray) -> dict[str, float]:
+    # Evaluation:
+    # Accuracy tells me how often the highest-probability pick was correct. Log loss
+    # is stricter because it rewards calibrated confidence and penalizes confident
+    # wrong predictions, which is important for probability-based sports forecasts.
     predictions = probabilities.argmax(axis=1)
     accuracy = float((predictions == labels).mean())
     log_loss = float(
@@ -291,6 +346,10 @@ def run_model_experiment(
     numeric_columns: list[str],
     config: dict[str, float | int],
 ) -> tuple[SoftmaxModel, np.ndarray, dict[str, float]]:
+    # Experiment setup:
+    # I use the same train/test process for both the teams-only baseline and the
+    # teams-plus-odds model. This makes the comparison fair because both models are
+    # evaluated on the exact same held-out matches.
     spec = fit_matrix_spec(train_frame, numeric_columns)
     train_features = build_design_matrix(train_frame, spec)
     test_features = build_design_matrix(test_frame, spec)
@@ -308,6 +367,10 @@ def save_prediction_report(
     model_probabilities: np.ndarray,
     market_probabilities: np.ndarray,
 ) -> None:
+    # Reporting output:
+    # I save both the model probabilities and the market-implied probabilities so
+    # the frontend can compare my model's pick, confidence, and edge against the
+    # betting market benchmark for each fixture.
     base_columns = ["Season", "MatchDate", "HomeTeam", "AwayTeam", "FTR", "B365H", "B365D", "B365A"]
     stat_columns = ["FTHG", "FTAG", "HS", "AS", "HST", "AST", "HC", "AC", "HY", "AY", "HR", "AR"]
 
@@ -334,6 +397,9 @@ def save_prediction_report(
 
 
 def save_model_artifact(path: Path, model: SoftmaxModel, trained_through: pd.Timestamp) -> None:
+    # Model artifact:
+    # I save the learned weights, bias terms, category levels, and scaling values so
+    # the trained model can be inspected or reused without retraining from scratch.
     np.savez(
         path,
         weights=model.weights,
@@ -365,6 +431,10 @@ def main() -> None:
     if train_frame.empty or test_frame.empty:
         raise ValueError("Training or test split is empty. Check the available season files.")
 
+    # Validation strategy:
+    # I train on older seasons and hold out the newest season. This simulates the
+    # real use case: learning from past Premier League matches, then predicting
+    # matches from a later season the model has not trained on.
     market_probabilities = test_frame[["prob_home", "prob_draw", "prob_away"]].to_numpy(
         dtype=np.float64
     )
@@ -386,6 +456,10 @@ def main() -> None:
     production_spec = fit_matrix_spec(production_frame, ODDS_NUMERIC_COLUMNS)
     production_features = build_design_matrix(production_frame, production_spec)
     production_labels = production_frame["y"].astype(int).to_numpy()
+    # Production model:
+    # After measuring holdout performance, I refit the chosen feature set on every
+    # played match available. This gives the app the most informed version of the
+    # model while still keeping the backtest metrics separate and honest.
     production_model = fit_softmax_classifier(
         production_features,
         production_labels,
@@ -437,9 +511,9 @@ def main() -> None:
             "market_implied_probabilities": market_metrics,
         },
         "notes": [
-            "The training features are pre-match only: team identity, match date parts, and Bet365 1X2 odds.",
-            "Post-match fields such as goals, shots, and cards are intentionally excluded to avoid target leakage.",
-            "The saved production model is fit on every played match in the folder through the latest available date.",
+            "I use pre-match features only: team identity, match date parts, and Bet365 1X2 odds.",
+            "I intentionally exclude post-match fields such as goals, shots, and cards to avoid target leakage.",
+            "I fit the saved production model on every played match in the folder through the latest available date.",
         ],
     }
     metrics_path.write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")

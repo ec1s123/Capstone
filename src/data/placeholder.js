@@ -1,44 +1,3 @@
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
-
-const hashSeed = (input) => {
-  let hash = 0
-  for (let i = 0; i < input.length; i += 1) {
-    hash = (hash << 5) - hash + input.charCodeAt(i)
-    hash |= 0
-  }
-  return Math.abs(hash)
-}
-
-const wobble = (team, week, mod, offset) => {
-  const seed = hashSeed(team) + week * 17 + offset
-  return (seed % mod) - Math.floor(mod / 2)
-}
-
-const formWindowSize = 5
-
-const buildFormResult = (team, week, offset) => {
-  const sample = (hashSeed(team) + week * 19 + offset) % 100
-  if (sample < 44) return 'W'
-  if (sample < 70) return 'D'
-  return 'L'
-}
-
-export function buildLastFiveForm(team, gameweek, offset = 0) {
-  const safeWeek = clamp(gameweek, 0, 38)
-  const startWeek = Math.max(1, safeWeek - formWindowSize + 1)
-  const recentResults = []
-
-  for (let week = startWeek; week <= safeWeek; week += 1) {
-    recentResults.push(buildFormResult(team, week, offset))
-  }
-
-  while (recentResults.length < formWindowSize) {
-    recentResults.unshift(null)
-  }
-
-  return recentResults
-}
-
 export const teamList = [
   { team: 'Arsenal', color: '#ef233c', totalPoints: 86, predictedTotal: 83 },
   { team: 'Aston Villa', color: '#7d3c98', totalPoints: 63, predictedTotal: 60 },
@@ -61,29 +20,3 @@ export const teamList = [
   { team: 'West Ham', color: '#7a263a', totalPoints: 56, predictedTotal: 53 },
   { team: 'Wolves', color: '#fcbf49', totalPoints: 47, predictedTotal: 46 }
 ]
-
-export function buildStandings(gameweek) {
-  const progress = clamp(gameweek / 38, 0, 1)
-
-  return teamList.map((team) => {
-    const basePoints = team.totalPoints * progress
-    const basePredicted = team.predictedTotal * progress
-
-    const points = Math.round(
-      clamp(basePoints + wobble(team.team, gameweek, 7, 11), 0, team.totalPoints)
-    )
-    const predictedPoints = Math.round(
-      clamp(basePredicted + wobble(team.team, gameweek, 9, 31), 0, team.predictedTotal)
-    )
-
-    return {
-      team: team.team,
-      color: team.color,
-      played: gameweek,
-      points,
-      predictedPoints,
-      form: buildLastFiveForm(team.team, gameweek, 11),
-      predictedForm: buildLastFiveForm(team.team, gameweek, 71),
-    }
-  })
-}
