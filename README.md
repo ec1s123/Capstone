@@ -4,8 +4,6 @@ Premier Predict is a React and Vite web application for exploring Premier League
 
 ## Deployment
 
-Deployment URL: Add the final hosted application URL here before submission.
-
 The project includes React Router fallback configuration for static deployment:
 
 - `vercel.json` rewrites all routes to `index.html` for Vercel.

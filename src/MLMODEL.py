@@ -25,7 +25,8 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "Prem-2026-2003"
 OUTPUT_DIR = Path(__file__).resolve().parent / "data"
 
-RANDOM_SEED = 42
+RANDOM_SEED = 42 # I set a fixed random seed for reproducibility of results. 
+# This ensures that the same training process yields the same model weights and metrics each time the script is run.
 CLASS_LABELS = np.array(["H", "D", "A"])
 RESULT_NAMES = {"H": "Home Win", "D": "Draw", "A": "Away Win"}
 LABEL_MAP = {"H": 0, "D": 1, "A": 2}
@@ -44,6 +45,11 @@ ODDS_NUMERIC_COLUMNS = BASE_NUMERIC_COLUMNS + [
 ]
 
 TEAM_NORMALISATION = {
+    # I normalize team names so that different versions of the same club are treated as one category.
+    #  This is important because the model learns team-specific patterns, so inconsistent names would 
+    # split one club into multiple fake categories and dilute the training signal.
+
+    # It also prevents truncation issues where the team name causes issues in the UI
     "Man City": "Manchester City",
     "Man United": "Manchester United",
     "Nott'm Forest": "Nottingham Forest",
@@ -53,11 +59,17 @@ TEAM_NORMALISATION = {
 }
 
 BASELINE_CONFIG = {"learning_rate": 0.02, "epochs": 1500, "l2": 1e-4, "batch_size": 512}
+# I found the best hyperparameters for the teams-plus-odds model by running a grid search over learning rates, epoch counts, L2 regularization strengths, and batch sizes.
 ODDS_MODEL_CONFIG = {"learning_rate": 0.01, "epochs": 2000, "l2": 5e-4, "batch_size": 512}
 
 
 @dataclass
 class MatrixSpec:
+    # This class stores the information needed to convert a DataFrame into a model input matrix. 
+    # It includes the category levels for home and away teams, the list of numeric columns, 
+    # and the means and standard deviations for numeric feature scaling. By fitting this spec on 
+    # the training data and reusing it for the test set, I ensure that the model transformation is consistent 
+    # and does not leak information from the holdout season.
     home_levels: list[str]
     away_levels: list[str]
     numeric_columns: list[str]
@@ -67,6 +79,10 @@ class MatrixSpec:
 
 @dataclass
 class SoftmaxModel:
+    # This class represents the trained multinomial logistic regression model. 
+    # It contains the learned weights and bias terms, as well as the matrix specification 
+    # that defines how to transform raw DataFrame inputs into the design matrix used for training and prediction. 
+    # By saving this information together, I can later inspect the model or reuse it for predictions without needing to retrain from scratch.
     weights: np.ndarray
     bias: np.ndarray
     spec: MatrixSpec
@@ -116,10 +132,14 @@ def read_csv_robust(path: Path) -> pd.DataFrame:
 
 
 def season_start_year(match_date: pd.Timestamp) -> int:
+    # The Premier League season starts in August, so if the match is in July or later, it belongs to the current year’s season.
+    #  If it’s in June or earlier, it belongs to the previous year’s season. This function calculates the season start year based on the match date.
     return match_date.year if match_date.month >= 7 else match_date.year - 1
 
 
 def season_label(start_year: int) -> str:
+    # I format the season label as "YYYY/YY" where the first part is the start year and the second part is the last two digits of the end year. 
+    # For example, a season starting in 2023 would be labeled "2023/24". This is a common way to refer to football seasons that span two calendar years.
     return f"{start_year}/{str(start_year + 1)[-2:]}"
 
 
