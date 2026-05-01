@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 
 import { Badge } from '../components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import {
   Select,
   SelectContent,
@@ -68,7 +68,7 @@ export function ClubPage({
         <SeasonSelector season={season} seasonOptions={seasonOptions} onSeasonChange={onSeasonChange} />
       </div>
 
-      <Card className="border-slate-200 bg-white shadow-sm">
+      <div className="rounded-xl bg-white">
         <CardHeader className="space-y-5 pb-4">
           <div>
             <CardTitle className="text-lg">Club Breakdown</CardTitle>
@@ -77,7 +77,7 @@ export function ClubPage({
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Choose Club</p>
             <Select value={selectedClub} onValueChange={onSelectedClubChange}>
-              <SelectTrigger className="h-16 w-full border border-slate-300 bg-white px-5 text-lg font-semibold text-slate-900 sm:h-20 sm:text-2xl">
+              <SelectTrigger className="flat-surface h-16 w-full bg-slate-50/80 px-5 text-lg font-semibold text-slate-900 sm:h-20 sm:text-2xl">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-[420px]">
@@ -97,27 +97,27 @@ export function ClubPage({
           {clubSummary ? (
             <>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="rounded-lg bg-slate-50 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Played</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums">{clubSummary.played}</p>
                 </div>
-                <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+                <div className="rounded-lg bg-sky-50 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-sky-700">Points</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-sky-700">{clubSummary.actualPoints}</p>
                 </div>
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                <div className="rounded-lg bg-emerald-50 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-emerald-700">Wins</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-emerald-700">{clubSummary.wins}</p>
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="rounded-lg bg-slate-50 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Draws</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums">{clubSummary.draws}</p>
                 </div>
-                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+                <div className="rounded-lg bg-rose-50 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-rose-700">Losses</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-rose-700">{clubSummary.losses}</p>
                 </div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="rounded-lg bg-amber-50 p-3">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-amber-700">Model Accuracy / Confidence</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-amber-700">
                     {formatPercent(clubSummary.modelAccuracy)} / {formatPercent(clubSummary.averageConfidence)}
@@ -131,7 +131,7 @@ export function ClubPage({
                   <p className="text-sm text-indigo-900/90">Delta is actual minus expected from model probabilities.</p>
                 </div>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                  <div className="rounded-lg bg-slate-50/70 p-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Wins</p>
                     <p className="mt-1 text-sm tabular-nums">
                       {clubSummary.wins} actual vs {clubSummary.expectedWins.toFixed(1)} expected
@@ -140,7 +140,7 @@ export function ClubPage({
                       {formatSigned(clubSummary.winDelta)}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                  <div className="rounded-lg bg-slate-50/70 p-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Draws</p>
                     <p className="mt-1 text-sm tabular-nums">
                       {clubSummary.draws} actual vs {clubSummary.expectedDraws.toFixed(1)} expected
@@ -149,7 +149,7 @@ export function ClubPage({
                       {formatSigned(clubSummary.drawDelta)}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                  <div className="rounded-lg bg-slate-50/70 p-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Losses</p>
                     <p className="mt-1 text-sm tabular-nums">
                       {clubSummary.losses} actual vs {clubSummary.expectedLosses.toFixed(1)} expected
@@ -158,7 +158,7 @@ export function ClubPage({
                       {formatSigned(clubSummary.lossDelta)}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                  <div className="rounded-lg bg-slate-50/70 p-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Points</p>
                     <p className="mt-1 text-sm tabular-nums">
                       {clubSummary.actualPoints} actual vs {clubSummary.expectedPoints.toFixed(1)} expected
@@ -174,8 +174,8 @@ export function ClubPage({
             <p className="text-sm text-muted-foreground">No fixtures available for this club in {season || 'this season'}.</p>
           )}
 
-          <div className="overflow-x-auto overflow-y-hidden rounded-lg border border-slate-200">
-            <div className="border-b border-slate-200 bg-slate-50 px-4 py-2">
+          <div className="overflow-x-auto overflow-y-hidden rounded-lg bg-white">
+            <div className="bg-slate-50 px-4 py-2">
               <p className="text-xs text-slate-500">Click any row to open the side detail panel.</p>
             </div>
             <Table className="min-w-[960px]">
@@ -250,7 +250,7 @@ export function ClubPage({
             </Table>
           </div>
         </CardContent>
-      </Card>
+      </div>
 
       <MatchDetailsDrawer
         matches={clubFixtures}

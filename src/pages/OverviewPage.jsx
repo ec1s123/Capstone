@@ -1,7 +1,7 @@
 // This code was generated with Codex.
 import { useMemo } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Activity, BrainCircuit, Calendar, Home, MessageSquareQuote } from 'lucide-react'
+import { Activity, BrainCircuit, Calendar, ChevronRight, Home, MessageSquareQuote } from 'lucide-react'
 
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
@@ -17,7 +17,7 @@ import { SeasonSelector } from '../components/shared/SeasonSelector'
 import { PerformerList } from '../components/standings/PerformerList'
 import { deriveMarketPickCode } from '../lib/standings'
 import { getDisplayTeamName, normalizeTeamName } from '../lib/teamUtils'
-import { formatPercent, formatSigned } from '../lib/formatters'
+import { formatPercent, formatProbabilityPointGap } from '../lib/formatters'
 import { average, buildMatchPageInsightData, probabilityBarHeight } from '../lib/matchInsights'
 
 function OverviewControlPanel({
@@ -196,12 +196,14 @@ function OverviewHeroSignal({ data }) {
 
         {data.topEdge && (
           <div className="rounded-lg bg-sky-50/70 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-700">Largest Model Edge</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-700">
+              Largest Model-Market Probability Gap
+            </p>
             <p className="mt-1 text-sm font-semibold text-slate-900">
               {getDisplayTeamName(data.topEdge.homeTeam)} vs {getDisplayTeamName(data.topEdge.awayTeam)}
             </p>
             <p className="mt-1 text-xs text-slate-600">
-              {data.topEdge.edgeLabel}: {formatSigned(data.topEdge.edgeDelta * 100, 1)} pts versus market
+              {data.topEdge.edgeLabel}: model rates it {formatProbabilityPointGap(data.topEdge.edgeDelta)}.
             </p>
           </div>
         )}
@@ -245,23 +247,25 @@ function OverviewActionGrid() {
   ]
 
   return (
-    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <section className="hairline-grid md-cols-2 lg-cols-3 xl-cols-5 grid gap-0 overflow-hidden rounded-lg bg-white/80 shadow-sm shadow-slate-200/50 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {actions.map((item) => {
         const Icon = item.icon
         return (
           <NavLink
             key={item.to}
             to={item.to}
-            className="group rounded-lg bg-white/75 p-5 transition-colors hover:bg-white"
+            className="group flex min-h-[9rem] items-start gap-3 p-4 transition-colors hover:bg-slate-50"
           >
-            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-white transition-transform group-hover:-translate-y-0.5">
-              <Icon className="h-5 w-5" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white transition-transform group-hover:-translate-y-0.5">
+              <Icon className="h-4 w-4" />
             </div>
-            <h3 className="text-base font-semibold text-slate-950">{item.title}</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
-            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 group-hover:text-slate-900">
-              View
-            </p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start gap-2">
+                <h3 className="text-sm font-semibold leading-5 text-slate-950">{item.title}</h3>
+                <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-400 transition-colors group-hover:text-slate-900" />
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-600">{item.description}</p>
+            </div>
           </NavLink>
         )
       })}
@@ -291,7 +295,7 @@ export function OverviewPage({
     <div className="space-y-6">
       <section className="grid items-start gap-6 lg:grid-cols-[1.35fr_0.9fr]">
         <div className="space-y-5">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Premier League Predictor</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Prem Predictor</p>
           <h1 className="max-w-4xl text-4xl font-semibold leading-tight tracking-tight text-slate-950 md:text-6xl">
             Every fixture, every market move, every model signal in one sharp view.
           </h1>
@@ -303,42 +307,15 @@ export function OverviewPage({
             The app brings together historical fixture data, pre-match odds, softmax probability modelling, and
             post-match analysis so users can move from a headline scoreline to the underlying signal in seconds.
           </p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
-              AI-driven forecasts
-            </Badge>
-            <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
-              Match-by-match analysis
-            </Badge>
-            <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
-              Structured model insights
-            </Badge>
-          </div>
-          <div className="flex flex-wrap gap-3 pt-2">
-            <NavLink
-              to="/model-output"
-              className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-700"
-            >
-              Explore model insights
-            </NavLink>
-            <NavLink
-              to="/matches"
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:border-slate-500"
-            >
-              View upcoming matches
-            </NavLink>
-            <NavLink
-              to="/results"
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:border-slate-500"
-            >
-              Open results
-            </NavLink>
-            <NavLink
-              to="/talking-points"
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:border-slate-500"
-            >
-              View talking points
-            </NavLink>
+          <div className="grid max-w-3xl gap-2 pt-1 sm:grid-cols-3">
+            {['AI-driven forecasts', 'Match-by-match analysis', 'Structured model insights'].map((label) => (
+              <div
+                key={label}
+                className="flex min-h-9 items-center justify-center rounded-lg bg-white/70 px-3 text-center text-sm font-semibold leading-5 text-slate-700"
+              >
+                {label}
+              </div>
+            ))}
           </div>
         </div>
         <div className="space-y-5">

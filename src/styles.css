@@ -181,6 +181,14 @@ h3 {
     display: none;
   }
 
+  .hairline-grid.xl-cols-5 > *::before {
+    display: block;
+  }
+
+  .hairline-grid.xl-cols-5 > *:nth-child(5n + 1)::before {
+    display: none;
+  }
+
   .hairline-grid.xl-cols-6 > *::before {
     display: block;
   }
@@ -226,22 +234,23 @@ h3 {
   border-left-width: 0.5px;
 }
 
-.rounded-md.border,
-.rounded-lg.border,
-.rounded-xl.border {
+.rounded-md.border:not(.rounded-full):not(button):not([role="combobox"]),
+.rounded-lg.border:not(.rounded-full),
+.rounded-xl.border:not(.rounded-full) {
   border-left-color: transparent;
   border-right-color: transparent;
-  border-top-color: var(--hairline-color);
-  border-bottom-color: var(--hairline-color);
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  box-shadow: none;
 }
 
-.rounded-md.border:hover,
-.rounded-lg.border:hover,
-.rounded-xl.border:hover {
+.rounded-md.border:not(.rounded-full):not(button):not([role="combobox"]):hover,
+.rounded-lg.border:not(.rounded-full):hover,
+.rounded-xl.border:not(.rounded-full):hover {
   border-left-color: transparent;
   border-right-color: transparent;
-  border-top-color: var(--hairline-color-strong);
-  border-bottom-color: var(--hairline-color-strong);
+  border-top-color: transparent;
+  border-bottom-color: transparent;
 }
 
 .rounded-md.border:not(.rounded-full),
@@ -251,7 +260,21 @@ h3 {
 }
 
 .shadow-sm {
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.025);
+  box-shadow: none;
+}
+
+.app-card,
+.app-card.border,
+.app-card.hairline {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.flat-surface,
+.flat-surface.hairline,
+.flat-surface.border {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .shadow-xl,
