@@ -5,6 +5,7 @@ import {
   Check,
   Copy,
   Flame,
+  Gauge,
   Megaphone,
   MessageSquareQuote,
   Sparkles,
@@ -19,7 +20,8 @@ import { ClubLogo } from '../components/shared/ClubLogo'
 import { SeasonSelector } from '../components/shared/SeasonSelector'
 import { cn } from '../lib/utils'
 import { deriveMarketPickCode } from '../lib/standings'
-import { formatMatchOutcome, formatPercent, formatScoreline } from '../lib/formatters'
+import { formatMatchOutcome, formatPercent, formatProbabilityPointGap, formatScoreline } from '../lib/formatters'
+import { buildTeamPressureSignals } from '../lib/matchInsights'
 import { getDisplayTeamName } from '../lib/teamUtils'
 
 const toneStyles = {
@@ -75,11 +77,6 @@ function formatDisplayMatchOutcome(resultCode, match) {
   return formatMatchOutcome(resultCode, match)
 }
 
-function formatProbabilityGap(value) {
-  const amount = `${Math.abs(value * 100).toFixed(1)} percentage points`
-  return value >= 0 ? `${amount} higher than the market` : `${amount} lower than the market`
-}
-
 function formatTablePointGap(value) {
   const amount = `${Math.abs(value).toFixed(0)} table points`
   return value >= 0 ? `${amount} above the model` : `${amount} below the model`
@@ -89,14 +86,20 @@ function isPlayed(match) {
   return Number.isFinite(match.homeGoals) && Number.isFinite(match.awayGoals)
 }
 
-function buildCaption({ title, stat, angle, evidence, season }) {
+function buildCaption({ title, stat, angle, evidence }) {
   const evidenceText = evidence.filter(Boolean).join(' | ')
-  return `${title}\n\n${angle}\n\nData: ${stat}${evidenceText ? ` | ${evidenceText}` : ''}\nSeason: ${season || 'Selected season'}`
+  return `${title}\n\n${angle}\n\nData: ${stat}${evidenceText ? ` | ${evidenceText}` : ''}`
 }
 
 function createTalkingPoints({ matches, topOver, topUnder, currentTable, predictedTable, season }) {
   const points = []
   const playedMatches = matches.filter(isPlayed)
+  const pressureSignals = buildTeamPressureSignals(matches)
+  const maxPressureSample = Math.max(...pressureSignals.map((team) => team.played), 0)
+  const qualifiedPressureSignals = pressureSignals.filter(
+    (team) => team.played >= Math.max(3, Math.floor(maxPressureSample * 0.5))
+  )
+  const pressurePool = qualifiedPressureSignals.length ? qualifiedPressureSignals : pressureSignals
 
   const edgeMatch = matches
     .map((match) => {
@@ -115,21 +118,21 @@ function createTalkingPoints({ matches, topOver, topUnder, currentTable, predict
     .sort((a, b) => b.edge - a.edge)[0]
 
   if (edgeMatch) {
-    const title = `The model is stronger on ${outcomeName(edgeMatch.match, edgeMatch.modelPick)} than the market.`
-    const stat = `${formatPercent(edgeMatch.modelProb)} model vs ${formatPercent(edgeMatch.marketProb)} market`
-    const angle = `${fixtureName(edgeMatch.match)} is the cleanest model-vs-market talking point in this season view.`
+    const title = `${outcomeName(edgeMatch.match, edgeMatch.modelPick)} has the largest model-market probability gap.`
+    const stat = `${formatPercent(edgeMatch.modelProb)} model probability vs ${formatPercent(edgeMatch.marketProb)} market-implied probability`
+    const angle = `${fixtureName(edgeMatch.match)} is the cleanest probability-gap talking point in this season view.`
     points.push({
       id: 'model-edge',
       type: 'Market Gap',
       title,
       angle,
       stat,
-      evidence: [`Model is ${formatProbabilityGap(edgeMatch.edge)}`, edgeMatch.match.matchDate],
+      evidence: [`Model rates it ${formatProbabilityPointGap(edgeMatch.edge)}`, edgeMatch.match.matchDate],
       caption: buildCaption({
         title,
         stat,
         angle,
-        evidence: [`Model is ${formatProbabilityGap(edgeMatch.edge)}`],
+        evidence: [`Model rates it ${formatProbabilityPointGap(edgeMatch.edge)}`],
         season,
       }),
       match: edgeMatch.match,
@@ -199,6 +202,73 @@ function createTalkingPoints({ matches, topOver, topUnder, currentTable, predict
     })
   }
 
+  const dominantPressureTeam = pressurePool[0]
+  if (dominantPressureTeam) {
+    const teamName = getDisplayTeamName(dominantPressureTeam.team)
+    const stat = `${dominantPressureTeam.pressurePerMatch.toFixed(1)} shots + corners per match; ${dominantPressureTeam.goalsPerMatch.toFixed(1)} goals per match`
+    const title = `${teamName} have the strongest pressure signal.`
+    const angle = `Their shot and corner volume makes them the most territorially dominant team in this season view.`
+    points.push({
+      id: 'pressure-dominance',
+      type: 'Pressure Signal',
+      title,
+      angle,
+      stat,
+      evidence: [
+        `Shot accuracy ${formatPercent(dominantPressureTeam.shotAccuracy)}`,
+        `Conversion ${formatPercent(dominantPressureTeam.conversion)}`,
+      ],
+      caption: buildCaption({
+        title,
+        stat,
+        angle,
+        evidence: [
+          `Shot accuracy ${formatPercent(dominantPressureTeam.shotAccuracy)}`,
+          `Conversion ${formatPercent(dominantPressureTeam.conversion)}`,
+        ],
+        season,
+      }),
+      team: dominantPressureTeam.team,
+      tone: 'emerald',
+      icon: Gauge,
+      score: 0.92,
+    })
+  }
+
+  const lowestPressureTeam = [...pressurePool]
+    .sort((a, b) => a.pressurePerMatch - b.pressurePerMatch || a.goalsPerMatch - b.goalsPerMatch)[0]
+  if (lowestPressureTeam && lowestPressureTeam.team !== dominantPressureTeam?.team) {
+    const teamName = getDisplayTeamName(lowestPressureTeam.team)
+    const stat = `${lowestPressureTeam.pressurePerMatch.toFixed(1)} shots + corners per match; ${lowestPressureTeam.goalsPerMatch.toFixed(1)} goals per match`
+    const title = `${teamName} have the weakest pressure profile.`
+    const angle = `Their low shot and corner volume makes them the clearest pressure concern in this season view.`
+    points.push({
+      id: 'pressure-concern',
+      type: 'Pressure Concern',
+      title,
+      angle,
+      stat,
+      evidence: [
+        `Shot accuracy ${formatPercent(lowestPressureTeam.shotAccuracy)}`,
+        `Conversion ${formatPercent(lowestPressureTeam.conversion)}`,
+      ],
+      caption: buildCaption({
+        title,
+        stat,
+        angle,
+        evidence: [
+          `Shot accuracy ${formatPercent(lowestPressureTeam.shotAccuracy)}`,
+          `Conversion ${formatPercent(lowestPressureTeam.conversion)}`,
+        ],
+        season,
+      }),
+      team: lowestPressureTeam.team,
+      tone: 'rose',
+      icon: TrendingDown,
+      score: 0.9,
+    })
+  }
+
   const drawEdge = matches
     .map((match) => ({
       match,
@@ -209,7 +279,7 @@ function createTalkingPoints({ matches, topOver, topUnder, currentTable, predict
 
   if (drawEdge) {
     const title = `The draw is more interesting in ${fixtureName(drawEdge.match)} than the market suggests.`
-    const stat = `${formatPercent(drawEdge.match.modelDrawProb)} model draw chance vs ${formatPercent(drawEdge.match.marketDrawProb)} market`
+    const stat = `${formatPercent(drawEdge.match.modelDrawProb)} model draw probability vs ${formatPercent(drawEdge.match.marketDrawProb)} market-implied draw probability`
     const angle = `Draw probabilities are easy to overlook, but this match has the largest draw gap in the selected data.`
     points.push({
       id: 'draw-watch',
@@ -217,12 +287,12 @@ function createTalkingPoints({ matches, topOver, topUnder, currentTable, predict
       title,
       angle,
       stat,
-      evidence: [`Model draw chance is ${formatProbabilityGap(drawEdge.edge)}`, drawEdge.match.matchDate],
+      evidence: [`Model rates the draw ${formatProbabilityPointGap(drawEdge.edge)}`, drawEdge.match.matchDate],
       caption: buildCaption({
         title,
         stat,
         angle,
-        evidence: [`Model draw chance is ${formatProbabilityGap(drawEdge.edge)}`],
+        evidence: [`Model rates the draw ${formatProbabilityPointGap(drawEdge.edge)}`],
         season,
       }),
       match: drawEdge.match,

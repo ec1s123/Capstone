@@ -1,6 +1,7 @@
 // This code was generated with Codex.
 import { deriveMarketPickCode, outcomeForClub } from './standings'
 import { formatMatchOutcome, formatPercent } from './formatters'
+import { getDisplayTeamName } from './teamUtils'
 
 export function average(values) {
   const finiteValues = values.filter(Number.isFinite)
@@ -57,69 +58,7 @@ export function buildMatchPageInsightData(matches) {
     (match) => safeChartValue(match.homeGoals) + safeChartValue(match.awayGoals) >= 3
   ).length
 
-  const teamMap = new Map()
-  const ensureTeam = (team) => {
-    if (!teamMap.has(team)) {
-      teamMap.set(team, {
-        team,
-        played: 0,
-        actualPoints: 0,
-        expectedPoints: 0,
-        goalsFor: 0,
-        goalsAgainst: 0,
-        shots: 0,
-        shotsOnTarget: 0,
-        corners: 0,
-        cards: 0,
-      })
-    }
-    return teamMap.get(team)
-  }
-
-  matches.forEach((match) => {
-    const home = ensureTeam(match.homeTeam)
-    const away = ensureTeam(match.awayTeam)
-
-    home.played += 1
-    away.played += 1
-
-    home.goalsFor += safeChartValue(match.homeGoals)
-    home.goalsAgainst += safeChartValue(match.awayGoals)
-    away.goalsFor += safeChartValue(match.awayGoals)
-    away.goalsAgainst += safeChartValue(match.homeGoals)
-
-    home.shots += safeChartValue(match.homeShots)
-    away.shots += safeChartValue(match.awayShots)
-    home.shotsOnTarget += safeChartValue(match.homeShotsOnTarget)
-    away.shotsOnTarget += safeChartValue(match.awayShotsOnTarget)
-    home.corners += safeChartValue(match.homeCorners)
-    away.corners += safeChartValue(match.awayCorners)
-    home.cards += safeChartValue(match.homeYellowCards) + safeChartValue(match.homeRedCards) * 2
-    away.cards += safeChartValue(match.awayYellowCards) + safeChartValue(match.awayRedCards) * 2
-
-    home.expectedPoints += match.modelHomeProb * 3 + match.modelDrawProb
-    away.expectedPoints += match.modelAwayProb * 3 + match.modelDrawProb
-
-    const homeOutcome = outcomeForClub(match.fullTimeResult, true)
-    const awayOutcome = outcomeForClub(match.fullTimeResult, false)
-    if (homeOutcome === 'W') home.actualPoints += 3
-    if (homeOutcome === 'D') home.actualPoints += 1
-    if (awayOutcome === 'W') away.actualPoints += 3
-    if (awayOutcome === 'D') away.actualPoints += 1
-  })
-
-  const teamSignals = [...teamMap.values()]
-    .map((team) => ({
-      ...team,
-      goalsPerMatch: team.played ? team.goalsFor / team.played : 0,
-      shotsPerMatch: team.played ? team.shots / team.played : 0,
-      pressurePerMatch: team.played ? (team.shots + team.corners) / team.played : 0,
-      shotAccuracy: team.shots ? team.shotsOnTarget / team.shots : 0,
-      conversion: team.shots ? team.goalsFor / team.shots : 0,
-      pointDelta: team.actualPoints - team.expectedPoints,
-    }))
-    .sort((a, b) => b.pressurePerMatch - a.pressurePerMatch || b.goalsPerMatch - a.goalsPerMatch)
-    .slice(0, 6)
+  const teamSignals = buildTeamPressureSignals(matches)
 
   const modelEdges = matches
     .map((match) => {
@@ -167,9 +106,84 @@ export function buildMatchPageInsightData(matches) {
       { label: 'Corners / Match', value: average(cornerTotals), format: 'number' },
       { label: 'Card Load / Match', value: average(cardTotals), format: 'number' },
     ],
-    teamSignals,
+    teamSignals: teamSignals.slice(0, 6),
     modelEdges,
   }
+}
+
+export function buildTeamPressureSignals(matches) {
+  const teamMap = new Map()
+  const ensureTeam = (team) => {
+    if (!teamMap.has(team)) {
+      teamMap.set(team, {
+        team,
+        played: 0,
+        actualPoints: 0,
+        expectedPoints: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        shots: 0,
+        shotsOnTarget: 0,
+        corners: 0,
+        cards: 0,
+      })
+    }
+    return teamMap.get(team)
+  }
+
+  matches
+    .filter(
+      (match) =>
+        Number.isFinite(match.homeShots) ||
+        Number.isFinite(match.awayShots) ||
+        Number.isFinite(match.homeCorners) ||
+        Number.isFinite(match.awayCorners)
+    )
+    .forEach((match) => {
+      const home = ensureTeam(match.homeTeam)
+      const away = ensureTeam(match.awayTeam)
+
+      home.played += 1
+      away.played += 1
+
+      home.goalsFor += safeChartValue(match.homeGoals)
+      home.goalsAgainst += safeChartValue(match.awayGoals)
+      away.goalsFor += safeChartValue(match.awayGoals)
+      away.goalsAgainst += safeChartValue(match.homeGoals)
+
+      home.shots += safeChartValue(match.homeShots)
+      away.shots += safeChartValue(match.awayShots)
+      home.shotsOnTarget += safeChartValue(match.homeShotsOnTarget)
+      away.shotsOnTarget += safeChartValue(match.awayShotsOnTarget)
+      home.corners += safeChartValue(match.homeCorners)
+      away.corners += safeChartValue(match.awayCorners)
+      home.cards += safeChartValue(match.homeYellowCards) + safeChartValue(match.homeRedCards) * 2
+      away.cards += safeChartValue(match.awayYellowCards) + safeChartValue(match.awayRedCards) * 2
+
+      home.expectedPoints += safeChartValue(match.modelHomeProb) * 3 + safeChartValue(match.modelDrawProb)
+      away.expectedPoints += safeChartValue(match.modelAwayProb) * 3 + safeChartValue(match.modelDrawProb)
+
+      if (['H', 'D', 'A'].includes(match.fullTimeResult)) {
+        const homeOutcome = outcomeForClub(match.fullTimeResult, true)
+        const awayOutcome = outcomeForClub(match.fullTimeResult, false)
+        if (homeOutcome === 'W') home.actualPoints += 3
+        if (homeOutcome === 'D') home.actualPoints += 1
+        if (awayOutcome === 'W') away.actualPoints += 3
+        if (awayOutcome === 'D') away.actualPoints += 1
+      }
+    })
+
+  return [...teamMap.values()]
+    .map((team) => ({
+      ...team,
+      goalsPerMatch: team.played ? team.goalsFor / team.played : 0,
+      shotsPerMatch: team.played ? team.shots / team.played : 0,
+      pressurePerMatch: team.played ? (team.shots + team.corners) / team.played : 0,
+      shotAccuracy: team.shots ? team.shotsOnTarget / team.shots : 0,
+      conversion: team.shots ? team.goalsFor / team.shots : 0,
+      pointDelta: team.actualPoints - team.expectedPoints,
+    }))
+    .sort((a, b) => b.pressurePerMatch - a.pressurePerMatch || b.goalsPerMatch - a.goalsPerMatch)
 }
 
 export function safeChartValue(value) {
@@ -199,7 +213,7 @@ export function outcomeProbabilityRows(match) {
     {
       code: 'H',
       label: formatMatchOutcome('H', match),
-      shortLabel: match.homeTeam,
+      shortLabel: getDisplayTeamName(match.homeTeam),
       team: match.homeTeam,
       model: match.modelHomeProb,
       market: match.marketHomeProb,
@@ -217,7 +231,7 @@ export function outcomeProbabilityRows(match) {
     {
       code: 'A',
       label: formatMatchOutcome('A', match),
-      shortLabel: match.awayTeam,
+      shortLabel: getDisplayTeamName(match.awayTeam),
       team: match.awayTeam,
       model: match.modelAwayProb,
       market: match.marketAwayProb,

@@ -1,10 +1,12 @@
 // This code was generated with Codex.
 import { ClubLogo } from '../shared/ClubLogo'
 import { cn } from '../../lib/utils'
+import { getDisplayTeamName } from '../../lib/teamUtils'
 import {
   comparisonDeltaClass,
   formatOptionalPercent,
   formatPercent,
+  formatProbabilityPointGap,
   formatSigned,
 } from '../../lib/formatters'
 import { barPercent, probabilityBarHeight, safeChartValue } from '../../lib/matchInsights'
@@ -76,44 +78,55 @@ export function GameTexturePanel({ texture }) {
 }
 
 export function TeamSignalPanel({ teams }) {
+  const pressureGridStyle = {
+    gridTemplateColumns: 'minmax(14rem, 1.45fr) repeat(5, minmax(7.25rem, 1fr))',
+  }
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Team Pressure Signals</p>
         <p className="text-xs text-slate-500">Top shot + corner volume</p>
       </div>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-            <tr className="border-b border-slate-200">
-              <th className="py-2 pr-3">Team</th>
-              <th className="px-3 py-2 text-right">Pressure</th>
-              <th className="px-3 py-2 text-right">Goals</th>
-              <th className="px-3 py-2 text-right">Shot Acc.</th>
-              <th className="px-3 py-2 text-right">Conversion</th>
-              <th className="pl-3 py-2 text-right">Pts vs xPts</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
+      <div className="matches-scroll-container mt-4 overflow-x-auto rounded-lg bg-white">
+        <div className="min-w-[920px] text-sm" role="table" aria-label="Team pressure signals">
+          <div
+            className="grid items-center bg-slate-50 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500"
+            style={pressureGridStyle}
+            role="row"
+          >
+            <div className="px-4 py-3 text-left" role="columnheader">Team</div>
+            <div className="px-4 py-3 text-right" role="columnheader">Pressure</div>
+            <div className="px-4 py-3 text-right" role="columnheader">Goals</div>
+            <div className="px-4 py-3 text-right" role="columnheader">Shot Acc.</div>
+            <div className="px-4 py-3 text-right" role="columnheader">Conversion</div>
+            <div className="px-4 py-3 text-right" role="columnheader">Pts vs xPts</div>
+          </div>
+          <div className="divide-y divide-slate-200" role="rowgroup">
             {teams.map((team) => (
-              <tr key={`team-signal-${team.team}`}>
-                <td className="py-3 pr-3">
-                  <div className="flex items-center gap-2">
+              <div
+                key={`team-signal-${team.team}`}
+                className="grid items-center"
+                style={pressureGridStyle}
+                role="row"
+              >
+                <div className="min-w-0 px-4 py-3" role="cell">
+                  <div className="flex min-w-0 items-center gap-2">
                     <ClubLogo team={team.team} />
-                    <span className="font-semibold text-slate-900">{team.team}</span>
+                    <span className="truncate font-semibold text-slate-900">{getDisplayTeamName(team.team)}</span>
                   </div>
-                </td>
-                <td className="px-3 py-3 text-right tabular-nums text-slate-700">{team.pressurePerMatch.toFixed(1)}</td>
-                <td className="px-3 py-3 text-right tabular-nums text-slate-700">{team.goalsPerMatch.toFixed(1)}</td>
-                <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatPercent(team.shotAccuracy)}</td>
-                <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatPercent(team.conversion)}</td>
-                <td className={cn('pl-3 py-3 text-right tabular-nums font-semibold', comparisonDeltaClass(team.pointDelta))}>
+                </div>
+                <div className="px-4 py-3 text-right tabular-nums text-slate-700" role="cell">{team.pressurePerMatch.toFixed(1)}</div>
+                <div className="px-4 py-3 text-right tabular-nums text-slate-700" role="cell">{team.goalsPerMatch.toFixed(1)}</div>
+                <div className="px-4 py-3 text-right tabular-nums text-slate-700" role="cell">{formatPercent(team.shotAccuracy)}</div>
+                <div className="px-4 py-3 text-right tabular-nums text-slate-700" role="cell">{formatPercent(team.conversion)}</div>
+                <div className={cn('px-4 py-3 text-right tabular-nums font-semibold', comparisonDeltaClass(team.pointDelta))} role="cell">
                   {formatSigned(team.pointDelta, 1)}
-                </td>
-              </tr>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -122,7 +135,10 @@ export function TeamSignalPanel({ teams }) {
 export function ModelEdgePanel({ matches, onSelectMatch }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Model Edges vs Market</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+        Model-Market Probability Gaps
+      </p>
+      <p className="mt-1 text-xs text-slate-500">Outcome probability differences versus market-implied probabilities.</p>
       <div className="mt-4 space-y-3">
         {matches.map((match) => (
           <button
@@ -133,14 +149,14 @@ export function ModelEdgePanel({ matches, onSelectMatch }) {
           >
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold text-slate-900">
-                {match.homeTeam} vs {match.awayTeam}
+                {getDisplayTeamName(match.homeTeam)} vs {getDisplayTeamName(match.awayTeam)}
               </span>
               <span className="block text-xs text-slate-500">
-                {match.edgeLabel} edge · {match.matchDate}
+                {match.edgeLabel} probability gap · {match.matchDate}
               </span>
             </span>
-            <span className={cn('tabular-nums text-sm font-semibold', comparisonDeltaClass(match.edgeDelta))}>
-              {formatSigned(match.edgeDelta * 100, 1)} pts
+            <span className={cn('max-w-[11rem] text-right text-xs font-semibold leading-5', comparisonDeltaClass(match.edgeDelta))}>
+              Model rates it {formatProbabilityPointGap(match.edgeDelta)}
             </span>
           </button>
         ))}
