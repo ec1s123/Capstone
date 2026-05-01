@@ -1,3 +1,5 @@
+<!-- This code was generated with Codex. -->
+
 # Premier Predict
 
 Premier Predict is a React and Vite web application for exploring Premier League match predictions, model confidence, betting-market comparisons, table projections, and club-level performance trends.
