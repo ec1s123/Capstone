@@ -113,6 +113,10 @@ export function getSeasonCurrentGameweek(fixtures) {
   return Math.max(...playedByTeam.values())
 }
 
+function safeChartValue(value) {
+  return Number.isFinite(value) ? value : 0
+}
+
 export function buildActualTable(fixtures, allTeams) {
   const tableByTeam = new Map()
   const orderedFixtures = sortFixturesChronologically(fixtures)
@@ -122,7 +126,12 @@ export function buildActualTable(fixtures, allTeams) {
       tableByTeam.set(team, {
         team,
         played: 0,
+        won: 0,
+        drawn: 0,
+        lost: 0,
         points: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
         formResults: [],
       })
     }
@@ -139,26 +148,57 @@ export function buildActualTable(fixtures, allTeams) {
 
     homeRow.played += 1
     awayRow.played += 1
+    homeRow.goalsFor += safeChartValue(fixture.homeGoals)
+    homeRow.goalsAgainst += safeChartValue(fixture.awayGoals)
+    awayRow.goalsFor += safeChartValue(fixture.awayGoals)
+    awayRow.goalsAgainst += safeChartValue(fixture.homeGoals)
 
     const homeOutcome = outcomeForClub(fixture.fullTimeResult, true)
     const awayOutcome = outcomeForClub(fixture.fullTimeResult, false)
     homeRow.formResults.push(homeOutcome)
     awayRow.formResults.push(awayOutcome)
 
-    if (homeOutcome === 'W') homeRow.points += 3
-    if (homeOutcome === 'D') homeRow.points += 1
-    if (awayOutcome === 'W') awayRow.points += 3
-    if (awayOutcome === 'D') awayRow.points += 1
+    if (homeOutcome === 'W') {
+      homeRow.won += 1
+      homeRow.points += 3
+    }
+    if (homeOutcome === 'D') {
+      homeRow.drawn += 1
+      homeRow.points += 1
+    }
+    if (homeOutcome === 'L') homeRow.lost += 1
+
+    if (awayOutcome === 'W') {
+      awayRow.won += 1
+      awayRow.points += 3
+    }
+    if (awayOutcome === 'D') {
+      awayRow.drawn += 1
+      awayRow.points += 1
+    }
+    if (awayOutcome === 'L') awayRow.lost += 1
   })
 
   return [...tableByTeam.values()]
     .map((row) => ({
       team: row.team,
       played: row.played,
+      won: row.won,
+      drawn: row.drawn,
+      lost: row.lost,
       points: row.points,
+      goalsFor: row.goalsFor,
+      goalsAgainst: row.goalsAgainst,
+      goalDifference: row.goalsFor - row.goalsAgainst,
       form: normalizeRecentForm(row.formResults),
     }))
-    .sort((a, b) => b.points - a.points || a.team.localeCompare(b.team))
+    .sort(
+      (a, b) =>
+        b.points - a.points ||
+        b.goalDifference - a.goalDifference ||
+        b.goalsFor - a.goalsFor ||
+        a.team.localeCompare(b.team)
+    )
 }
 
 export function buildModelOutputTable(fixtures) {
@@ -177,6 +217,8 @@ export function buildModelOutputTable(fixtures) {
         expectedWins: 0,
         expectedDraws: 0,
         expectedLosses: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
         formResults: [],
       })
     }
@@ -191,6 +233,10 @@ export function buildModelOutputTable(fixtures) {
 
     homeRow.Played += 1
     awayRow.Played += 1
+    homeRow.goalsFor += safeChartValue(fixture.homeGoals)
+    homeRow.goalsAgainst += safeChartValue(fixture.awayGoals)
+    awayRow.goalsFor += safeChartValue(fixture.awayGoals)
+    awayRow.goalsAgainst += safeChartValue(fixture.homeGoals)
 
     homeRow.expectedWins += fixture.modelHomeProb
     homeRow.expectedDraws += fixture.modelDrawProb
@@ -220,6 +266,12 @@ export function buildModelOutputTable(fixtures) {
         Lost: projected.lost,
         Points: projected.points,
         ExpectedPoints: Number(row.ExpectedPoints.toFixed(2)),
+        ExpectedWins: Number(row.expectedWins.toFixed(2)),
+        ExpectedDraws: Number(row.expectedDraws.toFixed(2)),
+        ExpectedLosses: Number(row.expectedLosses.toFixed(2)),
+        GoalsFor: row.goalsFor,
+        GoalsAgainst: row.goalsAgainst,
+        GoalDifference: row.goalsFor - row.goalsAgainst,
         Form: form,
       }
     })

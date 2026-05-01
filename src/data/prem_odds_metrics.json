@@ -1,0 +1,54 @@
+{
+  "data_directory": "/Users/adam/Documents/AutomateArmy/Projects/badcap/Prem-2026-2003",
+  "matches_used": 8692,
+  "seasons_used": 23,
+  "data_start": "2003-08-16",
+  "data_end": "2026-04-22",
+  "train_matches": 8360,
+  "test_matches": 332,
+  "test_season": "2025/26",
+  "season_match_counts": {
+    "2003/04": 380,
+    "2004/05": 380,
+    "2005/06": 380,
+    "2006/07": 380,
+    "2007/08": 380,
+    "2008/09": 380,
+    "2009/10": 380,
+    "2010/11": 380,
+    "2011/12": 380,
+    "2012/13": 380,
+    "2013/14": 380,
+    "2014/15": 380,
+    "2015/16": 380,
+    "2016/17": 380,
+    "2017/18": 380,
+    "2018/19": 380,
+    "2019/20": 314,
+    "2020/21": 446,
+    "2021/22": 380,
+    "2022/23": 380,
+    "2023/24": 380,
+    "2024/25": 380,
+    "2025/26": 332
+  },
+  "models": {
+    "teams_only_softmax": {
+      "accuracy": 0.4578313253012048,
+      "log_loss": 1.0688813903842505
+    },
+    "teams_plus_odds_softmax": {
+      "accuracy": 0.4819277108433735,
+      "log_loss": 1.0374902021540198
+    },
+    "market_implied_probabilities": {
+      "accuracy": 0.49096385542168675,
+      "log_loss": 1.0215481994107019
+    }
+  },
+  "notes": [
+    "The training features are pre-match only: team identity, match date parts, and Bet365 1X2 odds.",
+    "Post-match fields such as goals, shots, and cards are intentionally excluded to avoid target leakage.",
+    "The saved production model is fit on every played match in the folder through the latest available date."
+  ]
+}
